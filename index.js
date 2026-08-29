@@ -32,7 +32,7 @@ client.once("ready", async () => {
 
 
 client.on("interactionCreate", async interaction => {
-  if (!interaction.isChatInputCommand()) return;
+ console.log("📥 Interacción recibida:", interaction.type, interaction.commandName); if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "setup") {
     if (interaction.user.id !== interaction.guild.ownerId) {
