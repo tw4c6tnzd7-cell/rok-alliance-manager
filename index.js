@@ -41,11 +41,14 @@ client.once("ready", async () => {
 
 client.on("interactionCreate", async interaction => {
   if (interaction.isButton()) {
-  const roles = {
-    rol_infanteria: "🛡️ Infantería",
-    rol_caballeria: "🐎 Caballería",
-    rol_arqueria: "🏹 Arquería"
-  };
+    const roles = {
+  rol_infanteria: "🛡️ Infantería",
+  rol_caballeria: "🐎 Caballería",
+  rol_arqueria: "🏹 Arquería",
+  rol_rally: "🔥 Rally Leader",
+  rol_garrison: "🏰 Garrison Leader"
+};
+  
 
   const roleName = roles[interaction.customId];
   if (!roleName) return;
@@ -57,8 +60,31 @@ client.on("interactionCreate", async interaction => {
       content: `❌ No encuentro el rol ${roleName}.`,
       ephemeral: true
     });
+  } 
+    const specialRoleIds = ["rol_rally", "rol_garrison"];
+
+if (specialRoleIds.includes(interaction.customId)) {
+  if (interaction.member.roles.cache.has(role.id)) {
+    await interaction.member.roles.remove(role);
+
+    return interaction.reply({
+      content: `➖ Te he quitado el rol ${roleName}.`,
+      ephemeral: true
+    });
   }
-const troopRoleNames = Object.values(roles);
+
+  await interaction.member.roles.add(role);
+
+  return interaction.reply({
+    content: `✅ Ahora tienes el rol ${roleName}.`,
+    ephemeral: true
+  });
+}
+const troopRoleNames = [
+  roles.rol_infanteria,
+  roles.rol_caballeria,
+  roles.rol_arqueria
+];
 
 for (const troopRoleName of troopRoleNames) {
   const troopRole = interaction.guild.roles.cache.find(
@@ -102,7 +128,19 @@ return interaction.reply({
       .setCustomId("rol_arqueria")
       .setLabel("Arquería")
       .setEmoji("🏹")
-      .setStyle(ButtonStyle.Primary)
+      .setStyle(ButtonStyle.Primary) ,
+
+new ButtonBuilder()
+  .setCustomId("rol_rally")
+  .setLabel("Rally Leader")
+  .setEmoji("🔥")
+  .setStyle(ButtonStyle.Success),
+
+new ButtonBuilder()
+  .setCustomId("rol_garrison")
+  .setLabel("Garrison Leader")
+  .setEmoji("🏰")
+  .setStyle(ButtonStyle.Success)
   );
 
   return interaction.reply({
