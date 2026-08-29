@@ -58,21 +58,31 @@ client.on("interactionCreate", async interaction => {
       ephemeral: true
     });
   }
+const troopRoleNames = Object.values(roles);
 
-  if (interaction.member.roles.cache.has(role.id)) {
-    await interaction.member.roles.remove(role);
-    return interaction.reply({
-      content: `➖ Te he quitado el rol ${roleName}.`,
-      ephemeral: true
-    });
+for (const troopRoleName of troopRoleNames) {
+  const troopRole = interaction.guild.roles.cache.find(
+    r => r.name === troopRoleName
+  );
+
+  if (
+    troopRole &&
+    troopRole.id !== role.id &&
+    interaction.member.roles.cache.has(troopRole.id)
+  ) {
+    await interaction.member.roles.remove(troopRole);
   }
+}
 
+if (!interaction.member.roles.cache.has(role.id)) {
   await interaction.member.roles.add(role);
+}
 
-  return interaction.reply({
-    content: `✅ Ahora tienes el rol ${roleName}.`,
-    ephemeral: true
-  });
+return interaction.reply({
+  content: `✅ Tu tropa principal ahora es ${roleName}.`,
+  ephemeral: true
+});
+  
 }
   if (interaction.commandName === "panelroles") {
   const row = new ActionRowBuilder().addComponents(
