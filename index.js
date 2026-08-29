@@ -13,7 +13,20 @@ const client = new Client({
     GatewayIntentBits.GuildMembers
   ]
 });
+client.once("ready", async () => {
+  console.log(`✅ Bot conectado como ${client.user.tag}`);
 
+  for (const guild of client.guilds.cache.values()) {
+    await guild.commands.set([
+      {
+        name: "setup",
+        description: "Configura automáticamente el servidor de Rise of Kingdoms"
+      }
+    ]);
+  }
+
+  console.log("✅ Comando /setup registrado");
+});
 
 
 
