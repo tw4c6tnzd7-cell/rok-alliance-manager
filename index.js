@@ -26,13 +26,37 @@ client.once("ready", async () => {
         description: "Configura automáticamente el servidor de Rise of Kingdoms"
      },
   {
-    name: "panelroles",
-    description: "Publica el panel para elegir tipo de tropa"
-  }
-]);
+    
+  name: "panelroles",
+  description: "Publica el panel para elegir roles"
+},
+{
+  name: "rango",
+  description: "Asigna un rango de alianza a un miembro",
+  options: [
+    {
+      name: "usuario",
+      description: "Miembro al que quieres asignar el rango",
+      type: 6,
+      required: true
+    },
+    {
+      name: "rango",
+      description: "Rango que quieres asignar",
+      type: 3,
+      required: true,
+      choices: [
+        { name: "R4 • Oficial", value: "r4" },
+        { name: "R3", value: "r3" },
+        { name: "R2", value: "r2" },
+        { name: "R1", value: "r1" }
+      ]
+    }
+  ]
 }
+]);
+  }
   
-
   console.log("✅ Comando /setup registrado");
 });
 
@@ -149,7 +173,64 @@ new ButtonBuilder()
   });
 }
  console.log("📥 Interacción recibida:", interaction.type, interaction.commandName); if (!interaction.isChatInputCommand()) return;
+if (interaction.commandName === "rango") {
+  if (interaction.user.id !== interaction.guild.ownerId) {
+    return interaction.reply({
+      content: "❌ Solo el propietario del servidor puede asignar rangos.",
+      ephemeral: true
+    });
+  }
 
+  const member = interaction.options.getMember("usuario");
+  const rango = interaction.options.getString("rango");
+
+  const roleNames = {
+    r4: "🛡️ R4 • Oficial",
+    r3: "⚔️ R3",
+    r2: "🔷 R2",
+    r1: "🔶 R1"
+  };
+
+  const roleName = roleNames[rango];
+
+  const role = interaction.guild.roles.cache.find(
+    r => r.name === roleName
+  );
+
+  if (!role) {
+    return interaction.reply({
+      content: `❌ No encuentro el rol ${roleName}.`,
+      ephemeral: true
+    });
+  }
+
+  const allianceRoles = Object.values(roleNames);
+
+  for (const name of allianceRoles) {
+    const oldRole = interaction.guild.roles.cache.find(
+      r => r.name === name
+    );
+
+    if (
+      oldRole &&
+      oldRole.id !== role.id &&
+      member.roles.cache.has(oldRole.id)
+    ) {
+      await member.roles.remove(oldRole);
+    }
+  }
+
+  if (!member.roles.cache.has(role.id)) {
+    await member.roles.add(role);
+  }
+
+  return interaction.reply({
+    content: `✅ ${member} ahora tiene el rango **${role.name}**.`,
+    ephemeral: true
+  });
+}
+  
+  
   if (interaction.commandName === "setup") {
     if (interaction.user.id !== interaction.guild.ownerId) {
       return interaction.reply({
