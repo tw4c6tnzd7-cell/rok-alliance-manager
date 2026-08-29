@@ -74,6 +74,32 @@ client.on("interactionCreate", async interaction => {
     ephemeral: true
   });
 }
+  if (interaction.commandName === "panelroles") {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("rol_infanteria")
+      .setLabel("Infantería")
+      .setEmoji("🛡️")
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId("rol_caballeria")
+      .setLabel("Caballería")
+      .setEmoji("🐎")
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId("rol_arqueria")
+      .setLabel("Arquería")
+      .setEmoji("🏹")
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  return interaction.reply({
+    content: "⚔️ **Elige tu tipo de tropa principal:**",
+    components: [row]
+  });
+}
  console.log("📥 Interacción recibida:", interaction.type, interaction.commandName); if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "setup") {
