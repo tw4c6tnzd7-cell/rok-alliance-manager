@@ -24,9 +24,14 @@ client.once("ready", async () => {
       {
         name: "setup",
         description: "Configura automáticamente el servidor de Rise of Kingdoms"
-      }
-    ]);
+     },
+  {
+    name: "panelroles",
+    description: "Publica el panel para elegir tipo de tropa"
   }
+]);
+}
+  
 
   console.log("✅ Comando /setup registrado");
 });
