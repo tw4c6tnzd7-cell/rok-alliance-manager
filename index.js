@@ -412,5 +412,26 @@ if (r5Role && !owner.roles.cache.has(r5Role.id)) {
     }
   }
 });
+client.on("guildMemberAdd", async member => {
+  const channel = member.guild.channels.cache.find(
+    c => c.name === "👋・bienvenida"
+  );
 
+  if (!channel) return;
+
+  const reglas = member.guild.channels.cache.find(
+    c => c.name === "📜・reglas"
+  );
+
+  const rolesChannel = member.guild.channels.cache.find(
+    c => c.name === "🎭・roles"
+  );
+
+  await channel.send(
+    `👋 ¡Bienvenido/a ${member} a **${member.guild.name}**!\n\n` +
+    `📜 Revisa las reglas${reglas ? ` en ${reglas}` : ""}.\n` +
+    `🎭 Elige tu tropa principal${rolesChannel ? ` en ${rolesChannel}` : ""}.\n` +
+    `⚔️ ¡Prepárate para guerra, eventos y KvK!`
+  );
+});
 client.login(process.env.DISCORD_TOKEN);
