@@ -2,7 +2,10 @@ const {
   Client,
   GatewayIntentBits,
   ChannelType,
-  PermissionFlagsBits
+  PermissionFlagsBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require("discord.js");
 
 require("dotenv").config();
@@ -32,6 +35,40 @@ client.once("ready", async () => {
 
 
 client.on("interactionCreate", async interaction => {
+  if (interaction.isButton()) {
+  const roles = {
+    rol_infanteria: "🛡️ Infantería",
+    rol_caballeria: "🐎 Caballería",
+    rol_arqueria: "🏹 Arquería"
+  };
+
+  const roleName = roles[interaction.customId];
+  if (!roleName) return;
+
+  const role = interaction.guild.roles.cache.find(r => r.name === roleName);
+
+  if (!role) {
+    return interaction.reply({
+      content: `❌ No encuentro el rol ${roleName}.`,
+      ephemeral: true
+    });
+  }
+
+  if (interaction.member.roles.cache.has(role.id)) {
+    await interaction.member.roles.remove(role);
+    return interaction.reply({
+      content: `➖ Te he quitado el rol ${roleName}.`,
+      ephemeral: true
+    });
+  }
+
+  await interaction.member.roles.add(role);
+
+  return interaction.reply({
+    content: `✅ Ahora tienes el rol ${roleName}.`,
+    ephemeral: true
+  });
+}
  console.log("📥 Interacción recibida:", interaction.type, interaction.commandName); if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "setup") {
