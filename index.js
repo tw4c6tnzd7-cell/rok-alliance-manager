@@ -191,7 +191,12 @@ new ButtonBuilder()
 
         roles[name] = role;
       }
+const r5Role = roles["👑 R5 • Líder"];
+const owner = await guild.fetchOwner();
 
+if (r5Role && !owner.roles.cache.has(r5Role.id)) {
+  await owner.roles.add(r5Role);
+}
       async function createCategory(name, privateR4 = false) {
         let category = guild.channels.cache.find(
           c => c.name === name && c.type === ChannelType.GuildCategory
