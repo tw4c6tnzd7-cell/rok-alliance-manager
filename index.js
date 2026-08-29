@@ -13,9 +13,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers
   ]
 });
-GatewayIntentBits.GuildMembers
-  ]
-});
+
 
 
 
