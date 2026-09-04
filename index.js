@@ -1466,7 +1466,6 @@ destination === "alianza"
         return;
       }
 
-
       // ================================================
       // CANAL COMUNIDAD
       // ================================================
@@ -1474,18 +1473,293 @@ destination === "alianza"
       if (subcommand === "canal_comunidad") {
 
         const channel =
-          interaction.options.getChannel(
-            "canal"
-          );
+          interaction.options.getChannel("canal");
 
-
-        config.communityChannelId =
-          channel.id;
-
+        config.communityChannelId = channel.id;
 
         saveDatabase();
 
+        await interaction.reply({
+          content:
+`✅ Canal de comunidad configurado: ${channel}
+
+🌍 Los mensajes de **Reino / Comunidad** se enviarán aquí.`,
+          ephemeral: true
+        });
+
+        return;
+      }
+
+
+      // ================================================
+      // BIENVENIDA
+      // ================================================
+
+      if (subcommand === "bienvenida") {
+
+        const channel =
+          interaction.options.getChannel("canal");
+
+        config.welcomeChannelId = channel.id;
+
+        saveDatabase();
 
         await interaction.reply({
+          content: `✅ Canal de bienvenida: ${channel}`,
+          ephemeral: true
+        });
 
-          content
+        return;
+      }
+
+
+      // ================================================
+      // NORMAS
+      // ================================================
+
+      if (subcommand === "normas") {
+
+        const channel =
+          interaction.options.getChannel("canal");
+
+        config.rulesChannelId = channel.id;
+
+        saveDatabase();
+
+        await interaction.reply({
+          content: `✅ Canal de normas: ${channel}`,
+          ephemeral: true
+        });
+
+        return;
+      }
+
+
+      // ================================================
+      // ROL DE ALIANZA
+      // ================================================
+
+      if (subcommand === "rol") {
+
+        const role =
+          interaction.options.getRole("rol");
+
+        const botMember =
+          interaction.guild.members.me;
+
+        if (
+          botMember &&
+          role.position >= botMember.roles.highest.position
+        ) {
+
+          await interaction.reply({
+            content:
+`❌ No puedo asignar el rol ${role}.
+
+El rol está por encima o al mismo nivel que el rol del bot.
+
+Ve a:
+
+**Ajustes del servidor → Roles**
+
+y coloca **ROK Alliance Manager** por encima del rol de la alianza.`,
+            ephemeral: true
+          });
+
+          return;
+        }
+
+        config.memberRoleId = role.id;
+
+        saveDatabase();
+
+        await interaction.reply({
+          content:
+            `✅ Rol de alianza configurado: ${role}`,
+          ephemeral: true
+        });
+
+        return;
+      }
+
+
+      // ================================================
+      // IDIOMA PREDETERMINADO
+      // ================================================
+
+      if (subcommand === "idioma") {
+
+        const selected =
+          interaction.options.getString("idioma");
+
+        config.defaultLanguage = selected;
+
+        saveDatabase();
+
+        await interaction.reply({
+          content:
+            selected === "es"
+              ? "✅ Idioma predeterminado: 🇪🇸 **Español**"
+              : "✅ Default language: 🇬🇧 **English**",
+          ephemeral: true
+        });
+
+        return;
+      }
+
+
+      // ================================================
+      // VER CONFIGURACIÓN
+      // ================================================
+
+      if (subcommand === "ver") {
+
+        const embed =
+          new EmbedBuilder()
+            .setTitle(
+              "⚙️ Configuración de ROK Alliance Manager"
+            )
+            .addFields(
+              {
+                name: "⚔️ Alianza",
+                value:
+                  config.allianceName ||
+                  "No configurada"
+              },
+              {
+                name: "👑 Reino",
+                value:
+                  config.kingdom ||
+                  "No configurado"
+              },
+              {
+                name: "👥 Comunidad",
+                value:
+                  config.communityName ||
+                  "No configurada"
+              },
+              {
+                name: "⚔️ Canal privado de alianza",
+                value:
+                  config.allianceChannelId
+                    ? `<#${config.allianceChannelId}>`
+                    : "No configurado"
+              },
+              {
+                name: "🌍 Canal reino/comunidad",
+                value:
+                  config.communityChannelId
+                    ? `<#${config.communityChannelId}>`
+                    : "No configurado"
+              },
+              {
+                name: "👋 Bienvenida",
+                value:
+                  config.welcomeChannelId
+                    ? `<#${config.welcomeChannelId}>`
+                    : "No configurada"
+              },
+              {
+                name: "📜 Normas",
+                value:
+                  config.rulesChannelId
+                    ? `<#${config.rulesChannelId}>`
+                    : "No configuradas"
+              },
+              {
+                name: "🎭 Rol alianza",
+                value:
+                  config.memberRoleId
+                    ? `<@&${config.memberRoleId}>`
+                    : "No configurado"
+              },
+              {
+                name: "🌍 Idioma",
+                value:
+                  config.defaultLanguage === "en"
+                    ? "🇬🇧 English"
+                    : "🇪🇸 Español"
+              }
+            );
+
+        await interaction.reply({
+          embeds: [embed],
+          ephemeral: true
+        });
+
+        return;
+      }
+    }
+
+  } catch (error) {
+
+    console.error(
+      "❌ ERROR EN INTERACTION:",
+      error
+    );
+
+    try {
+
+      if (
+        interaction.deferred ||
+        interaction.replied
+      ) {
+
+        await interaction.followUp({
+          content:
+            "⚠️ Ha ocurrido un error ejecutando el comando.",
+          ephemeral: true
+        });
+
+      } else {
+
+        await interaction.reply({
+          content:
+            "⚠️ Ha ocurrido un error ejecutando el comando.",
+          ephemeral: true
+        });
+
+      }
+
+    } catch (secondError) {
+
+      console.error(
+        "❌ No se pudo responder al error:",
+        secondError
+      );
+    }
+  }
+});
+
+
+// ======================================================
+// ERRORES GENERALES
+// ======================================================
+
+client.on("error", error => {
+  console.error(
+    "❌ Error de Discord:",
+    error
+  );
+});
+
+
+process.on("unhandledRejection", error => {
+  console.error(
+    "❌ Promesa rechazada:",
+    error
+  );
+});
+
+
+// ======================================================
+// INICIO
+// ======================================================
+
+loadDatabase();
+
+console.log(
+  "🚀 Iniciando ROK Alliance Manager..."
+);
+
+client.login(TOKEN);
