@@ -534,33 +534,7 @@ client.on("guildMemberAdd", async member => {
   const config = getGuildConfig(member.guild.id);
 
 
-  // ====================================================
-  // ROL AUTOMÁTICO
-  // ====================================================
-
-  if (config.memberRoleId) {
-
-    try {
-
-      const role =
-        member.guild.roles.cache.get(
-          config.memberRoleId
-        );
-
-      if (role) {
-        await member.roles.add(role);
-      }
-
-    } catch (error) {
-
-      console.error(
-        "❌ No se pudo asignar el rol:",
-        error
-      );
-
-    }
-
-  }
+  
 
 
   // ====================================================
