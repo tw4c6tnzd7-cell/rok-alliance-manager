@@ -1,13 +1,14 @@
 {
   "name": "rok-alliance-manager",
   "version": "1.0.0",
-  "description": "Bot de Discord para gestionar una alianza de Rise of Kingdoms",
+  "description": "Bot de Discord para gestionar una alianza y comunidad de Rise of Kingdoms",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.22.1",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "translate-google": "^1.5.0"
   }
 }
