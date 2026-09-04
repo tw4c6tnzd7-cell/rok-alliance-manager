@@ -40,7 +40,7 @@ const client = new Client({
 
 
 // ======================================================
-// BASE DE DATOS SIMPLE EN JSON
+// BASE DE DATOS JSON
 // ======================================================
 
 const DATA_FILE = path.join(__dirname, "data.json");
@@ -86,23 +86,31 @@ function saveDatabase() {
 
 function getGuildConfig(guildId) {
   if (!database.guilds[guildId]) {
-    database.guilds[guildId] = {
-      allianceName: "",
-      kingdom: "",
-      communityName: "",
-      allianceDescription: "",
-      communityDescription: "",
-      welcomeChannelId: "",
-      rulesChannelId: "",
-      memberRoleId: "",
-      defaultLanguage: "es",
-      inviteLink: ""
-    };
-
-    saveDatabase();
+    database.guilds[guildId] = {};
   }
 
-  return database.guilds[guildId];
+  const config = database.guilds[guildId];
+
+  if (config.allianceName === undefined) config.allianceName = "";
+  if (config.kingdom === undefined) config.kingdom = "";
+  if (config.communityName === undefined) config.communityName = "";
+  if (config.allianceDescription === undefined) config.allianceDescription = "";
+  if (config.communityDescription === undefined) config.communityDescription = "";
+
+  if (config.welcomeChannelId === undefined) config.welcomeChannelId = "";
+  if (config.rulesChannelId === undefined) config.rulesChannelId = "";
+
+  // NUEVOS CANALES
+  if (config.allianceChannelId === undefined) config.allianceChannelId = "";
+  if (config.communityChannelId === undefined) config.communityChannelId = "";
+
+  if (config.memberRoleId === undefined) config.memberRoleId = "";
+  if (config.defaultLanguage === undefined) config.defaultLanguage = "es";
+  if (config.inviteLink === undefined) config.inviteLink = "";
+
+  saveDatabase();
+
+  return config;
 }
 
 
@@ -155,6 +163,7 @@ async function translateText(text, targetLanguage) {
 
 function languageButtons() {
   return new ActionRowBuilder().addComponents(
+
     new ButtonBuilder()
       .setCustomId("language_es")
       .setLabel("Español")
@@ -166,12 +175,13 @@ function languageButtons() {
       .setLabel("English")
       .setEmoji("🇬🇧")
       .setStyle(ButtonStyle.Primary)
+
   );
 }
 
 
 // ======================================================
-// COMANDOS SLASH
+// COMANDOS
 // ======================================================
 
 const commands = [
@@ -199,6 +209,7 @@ const commands = [
   {
     name: "traducir",
     description: "Traduce un texto",
+
     options: [
       {
         name: "texto",
@@ -206,11 +217,13 @@ const commands = [
         type: 3,
         required: true
       },
+
       {
         name: "idioma",
         description: "Idioma de destino",
         type: 3,
         required: true,
+
         choices: [
           {
             name: "🇪🇸 Español",
@@ -225,31 +238,53 @@ const commands = [
     ]
   },
 
+
+  // ====================================================
+  // PUBLICAR
+  // ====================================================
+
   {
     name: "publicar",
-    description: "Publica un mensaje bilingüe",
+    description: "Publica un mensaje para la alianza o la comunidad",
+
     default_member_permissions:
       PermissionFlagsBits.ManageGuild.toString(),
 
     options: [
+
+      {
+        name: "destino",
+        description: "Dónde quieres publicar",
+        type: 3,
+        required: true,
+
+        choices: [
+          {
+            name: "⚔️ Solo alianza",
+            value: "alianza"
+          },
+
+          {
+            name: "🌍 Reino / Comunidad",
+            value: "comunidad"
+          }
+        ]
+      },
+
       {
         name: "texto",
         description: "Mensaje que quieres publicar",
         type: 3,
         required: true
-      },
-
-      {
-        name: "canal",
-        description: "Canal donde publicar",
-        type: 7,
-        required: false,
-        channel_types: [
-          ChannelType.GuildText
-        ]
       }
+
     ]
   },
+
+
+  // ====================================================
+  // CONFIGURAR
+  // ====================================================
 
   {
     name: "configurar",
@@ -289,6 +324,7 @@ const commands = [
         ]
       },
 
+
       {
         name: "comunidad",
         description: "Configura la comunidad",
@@ -311,12 +347,53 @@ const commands = [
 
           {
             name: "invitacion",
-            description: "Enlace permanente de invitación",
+            description: "Enlace de invitación",
             type: 3,
             required: false
           }
         ]
       },
+
+
+      // NUEVO
+      {
+        name: "canal_alianza",
+        description: "Configura el canal privado de la alianza",
+        type: 1,
+
+        options: [
+          {
+            name: "canal",
+            description: "Canal privado de la alianza",
+            type: 7,
+            required: true,
+            channel_types: [
+              ChannelType.GuildText
+            ]
+          }
+        ]
+      },
+
+
+      // NUEVO
+      {
+        name: "canal_comunidad",
+        description: "Configura el canal público del reino o comunidad",
+        type: 1,
+
+        options: [
+          {
+            name: "canal",
+            description: "Canal público de la comunidad",
+            type: 7,
+            required: true,
+            channel_types: [
+              ChannelType.GuildText
+            ]
+          }
+        ]
+      },
+
 
       {
         name: "bienvenida",
@@ -336,6 +413,7 @@ const commands = [
         ]
       },
 
+
       {
         name: "normas",
         description: "Selecciona el canal de normas",
@@ -354,20 +432,22 @@ const commands = [
         ]
       },
 
+
       {
         name: "rol",
-        description: "Configura el rol automático",
+        description: "Configura el rol automático de alianza",
         type: 1,
 
         options: [
           {
             name: "rol",
-            description: "Rol para nuevos miembros",
+            description: "Rol de los miembros de la alianza",
             type: 8,
             required: true
           }
         ]
       },
+
 
       {
         name: "idioma",
@@ -396,6 +476,7 @@ const commands = [
         ]
       },
 
+
       {
         name: "ver",
         description: "Muestra la configuración actual",
@@ -412,7 +493,7 @@ const commands = [
 // BOT LISTO
 // ======================================================
 
-client.once("ready", async () => {
+client.once("clientReady", async () => {
 
   console.log("");
   console.log("======================================");
@@ -467,11 +548,7 @@ client.on("guildMemberAdd", async member => {
         );
 
       if (role) {
-
-        await member.roles.add(
-          role
-        );
-
+        await member.roles.add(role);
       }
 
     } catch (error) {
@@ -514,7 +591,6 @@ client.on("guildMemberAdd", async member => {
 
 
   const spanishText =
-
 `👋 ¡Bienvenido/a ${member} a **${community}**!
 
 ⚔️ **Alianza:** ${alliance}
@@ -526,7 +602,6 @@ Esperamos que disfrutes de nuestra comunidad. ❤️`;
 
 
   const englishText =
-
 `👋 Welcome ${member} to **${community}**!
 
 ⚔️ **Alliance:** ${alliance}
@@ -551,11 +626,8 @@ We hope you enjoy our community. ❤️`;
 
 
     database.messages[message.id] = {
-
       spanish: spanishText,
-
       english: englishText
-
     };
 
 
@@ -591,9 +663,7 @@ client.on("interactionCreate", async interaction => {
       if (!interaction.guild) return;
 
 
-      if (
-        interaction.customId === "language_es"
-      ) {
+      if (interaction.customId === "language_es") {
 
         setUserLanguage(
           interaction.guild.id,
@@ -638,9 +708,7 @@ ${saved.spanish}`,
       }
 
 
-      if (
-        interaction.customId === "language_en"
-      ) {
+      if (interaction.customId === "language_en") {
 
         setUserLanguage(
           interaction.guild.id,
@@ -728,9 +796,7 @@ ${saved.english}`,
     // /IDIOMA
     // ==================================================
 
-    if (
-      interaction.commandName === "idioma"
-    ) {
+    if (interaction.commandName === "idioma") {
 
       await interaction.reply({
 
@@ -753,9 +819,7 @@ ${saved.english}`,
     // /AYUDA
     // ==================================================
 
-    if (
-      interaction.commandName === "ayuda"
-    ) {
+    if (interaction.commandName === "ayuda") {
 
       const embed =
         new EmbedBuilder();
@@ -795,15 +859,13 @@ ${saved.english}`,
             },
 
             {
-              name: "📢 Bilingual messages",
-              value:
-                "`/publicar` — Administrators"
+              name: "📢 Publications",
+              value: "`/publicar`"
             },
 
             {
               name: "⚙️ Configuration",
-              value:
-                "`/configurar` — Administrators"
+              value: "`/configurar`"
             }
 
           );
@@ -842,15 +904,13 @@ ${saved.english}`,
             },
 
             {
-              name: "📢 Mensajes bilingües",
-              value:
-                "`/publicar` — Administradores"
+              name: "📢 Publicaciones",
+              value: "`/publicar`"
             },
 
             {
               name: "⚙️ Configuración",
-              value:
-                "`/configurar` — Administradores"
+              value: "`/configurar`"
             }
 
           );
@@ -871,9 +931,7 @@ ${saved.english}`,
     // /TRADUCIR
     // ==================================================
 
-    if (
-      interaction.commandName === "traducir"
-    ) {
+    if (interaction.commandName === "traducir") {
 
       const text =
         interaction.options.getString(
@@ -913,9 +971,7 @@ ${saved.english}`,
 
 
       await interaction.editReply({
-
         embeds: [embed]
-
       });
 
       return;
@@ -926,9 +982,7 @@ ${saved.english}`,
     // /ALIANZA
     // ==================================================
 
-    if (
-      interaction.commandName === "alianza"
-    ) {
+    if (interaction.commandName === "alianza") {
 
       let description =
         config.allianceDescription ||
@@ -1018,9 +1072,7 @@ ${saved.english}`,
     // /COMUNIDAD
     // ==================================================
 
-    if (
-      interaction.commandName === "comunidad"
-    ) {
+    if (interaction.commandName === "comunidad") {
 
       let description =
         config.communityDescription ||
@@ -1103,9 +1155,7 @@ ${saved.english}`,
     // /PUBLICAR
     // ==================================================
 
-    if (
-      interaction.commandName === "publicar"
-    ) {
+    if (interaction.commandName === "publicar") {
 
       if (
         !interaction.member.permissions.has(
@@ -1126,17 +1176,79 @@ ${saved.english}`,
       }
 
 
+      const destination =
+        interaction.options.getString(
+          "destino"
+        );
+
       const text =
         interaction.options.getString(
           "texto"
         );
 
 
+      let channelId = "";
+      let publicationTitle = "";
+
+
+      if (destination === "alianza") {
+
+        channelId =
+          config.allianceChannelId;
+
+        publicationTitle =
+          "⚔️ Mensaje de la alianza / Alliance Message";
+
+      }
+
+
+      if (destination === "comunidad") {
+
+        channelId =
+          config.communityChannelId;
+
+        publicationTitle =
+          "🌍 Mensaje de la comunidad / Community Message";
+
+      }
+
+
+      if (!channelId) {
+
+        await interaction.reply({
+
+          content:
+destination === "alianza"
+  ? "❌ Todavía no has configurado el canal privado de la alianza.\n\nUsa `/configurar canal_alianza`."
+  : "❌ Todavía no has configurado el canal de la comunidad.\n\nUsa `/configurar canal_comunidad`.",
+
+          ephemeral: true
+
+        });
+
+        return;
+      }
+
+
       const targetChannel =
-        interaction.options.getChannel(
-          "canal"
-        ) ||
-        interaction.channel;
+        interaction.guild.channels.cache.get(
+          channelId
+        );
+
+
+      if (!targetChannel) {
+
+        await interaction.reply({
+
+          content:
+            "❌ No encuentro el canal configurado. Vuelve a configurarlo.",
+
+          ephemeral: true
+
+        });
+
+        return;
+      }
 
 
       await interaction.deferReply({
@@ -1162,13 +1274,13 @@ ${saved.english}`,
         new EmbedBuilder()
 
           .setTitle(
-            "🌍 Mensaje de la comunidad / Community Message"
+            publicationTitle
           )
 
           .setDescription(
-`Pulsa tu idioma para leer el mensaje.
+`🇪🇸 Pulsa **Español** para leer el mensaje.
 
-Choose your language to read the message.`
+🇬🇧 Press **English** to read the message.`
           )
 
           .setFooter({
@@ -1190,11 +1302,8 @@ Choose your language to read the message.`
 
 
       database.messages[sent.id] = {
-
         spanish,
-
         english
-
       };
 
 
@@ -1204,7 +1313,9 @@ Choose your language to read the message.`
       await interaction.editReply({
 
         content:
-          `✅ Mensaje publicado en ${targetChannel}.`
+destination === "alianza"
+  ? `✅ Mensaje publicado **solo para la alianza** en ${targetChannel}.`
+  : `✅ Mensaje publicado para **reino/comunidad** en ${targetChannel}.`
 
       });
 
@@ -1216,9 +1327,7 @@ Choose your language to read the message.`
     // /CONFIGURAR
     // ==================================================
 
-    if (
-      interaction.commandName === "configurar"
-    ) {
+    if (interaction.commandName === "configurar") {
 
       if (
         !interaction.member.permissions.has(
@@ -1244,12 +1353,10 @@ Choose your language to read the message.`
 
 
       // ================================================
-      // CONFIGURAR ALIANZA
+      // ALIANZA
       // ================================================
 
-      if (
-        subcommand === "alianza"
-      ) {
+      if (subcommand === "alianza") {
 
         config.allianceName =
           interaction.options.getString(
@@ -1287,12 +1394,10 @@ Choose your language to read the message.`
 
 
       // ================================================
-      // CONFIGURAR COMUNIDAD
+      // COMUNIDAD
       // ================================================
 
-      if (
-        subcommand === "comunidad"
-      ) {
+      if (subcommand === "comunidad") {
 
         config.communityName =
           interaction.options.getString(
@@ -1329,12 +1434,10 @@ Choose your language to read the message.`
 
 
       // ================================================
-      // CONFIGURAR BIENVENIDA
+      // CANAL ALIANZA
       // ================================================
 
-      if (
-        subcommand === "bienvenida"
-      ) {
+      if (subcommand === "canal_alianza") {
 
         const channel =
           interaction.options.getChannel(
@@ -1342,7 +1445,7 @@ Choose your language to read the message.`
           );
 
 
-        config.welcomeChannelId =
+        config.allianceChannelId =
           channel.id;
 
 
@@ -1352,7 +1455,9 @@ Choose your language to read the message.`
         await interaction.reply({
 
           content:
-            `✅ Canal de bienvenida: ${channel}`,
+`✅ Canal privado de alianza configurado: ${channel}
+
+⚔️ Los mensajes de **Solo alianza** se enviarán aquí.`,
 
           ephemeral: true
 
@@ -1363,12 +1468,10 @@ Choose your language to read the message.`
 
 
       // ================================================
-      // CONFIGURAR NORMAS
+      // CANAL COMUNIDAD
       // ================================================
 
-      if (
-        subcommand === "normas"
-      ) {
+      if (subcommand === "canal_comunidad") {
 
         const channel =
           interaction.options.getChannel(
@@ -1376,7 +1479,7 @@ Choose your language to read the message.`
           );
 
 
-        config.rulesChannelId =
+        config.communityChannelId =
           channel.id;
 
 
@@ -1385,298 +1488,4 @@ Choose your language to read the message.`
 
         await interaction.reply({
 
-          content:
-            `✅ Canal de normas: ${channel}`,
-
-          ephemeral: true
-
-        });
-
-        return;
-      }
-
-
-      // ================================================
-      // CONFIGURAR ROL
-      // ================================================
-
-      if (
-        subcommand === "rol"
-      ) {
-
-        const role =
-          interaction.options.getRole(
-            "rol"
-          );
-
-
-        const botMember =
-          interaction.guild.members.me;
-
-
-        if (
-          botMember &&
-          role.position >=
-          botMember.roles.highest.position
-        ) {
-
-          await interaction.reply({
-
-            content:
-`❌ No puedo asignar ese rol.
-
-El rol **${role.name}** está por encima o al mismo nivel que mi rol.
-
-Ve a:
-
-**Ajustes del servidor → Roles**
-
-y coloca el rol de **ROK Alliance Manager por encima** del rol ${role}.`,
-
-            ephemeral: true
-
-          });
-
-          return;
-        }
-
-
-        config.memberRoleId =
-          role.id;
-
-
-        saveDatabase();
-
-
-        await interaction.reply({
-
-          content:
-            `✅ Rol automático configurado: ${role}`,
-
-          ephemeral: true
-
-        });
-
-        return;
-      }
-
-
-      // ================================================
-      // CONFIGURAR IDIOMA
-      // ================================================
-
-      if (
-        subcommand === "idioma"
-      ) {
-
-        const selected =
-          interaction.options.getString(
-            "idioma"
-          );
-
-
-        config.defaultLanguage =
-          selected;
-
-
-        saveDatabase();
-
-
-        await interaction.reply({
-
-          content:
-            selected === "es"
-              ? "✅ Idioma predeterminado: 🇪🇸 **Español**"
-              : "✅ Default language: 🇬🇧 **English**",
-
-          ephemeral: true
-
-        });
-
-        return;
-      }
-
-
-      // ================================================
-      // VER CONFIGURACIÓN
-      // ================================================
-
-      if (
-        subcommand === "ver"
-      ) {
-
-        const embed =
-          new EmbedBuilder()
-
-            .setTitle(
-              "⚙️ Configuración de ROK Alliance Manager"
-            )
-
-            .addFields(
-
-              {
-                name: "⚔️ Alianza",
-                value:
-                  config.allianceName ||
-                  "No configurada",
-                inline: false
-              },
-
-              {
-                name: "👑 Reino",
-                value:
-                  config.kingdom ||
-                  "No configurado",
-                inline: false
-              },
-
-              {
-                name: "👥 Comunidad",
-                value:
-                  config.communityName ||
-                  "No configurada",
-                inline: false
-              },
-
-              {
-                name: "👋 Bienvenida",
-                value:
-                  config.welcomeChannelId
-                    ? `<#${config.welcomeChannelId}>`
-                    : "No configurada",
-                inline: false
-              },
-
-              {
-                name: "📜 Normas",
-                value:
-                  config.rulesChannelId
-                    ? `<#${config.rulesChannelId}>`
-                    : "No configuradas",
-                inline: false
-              },
-
-              {
-                name: "🎭 Rol automático",
-                value:
-                  config.memberRoleId
-                    ? `<@&${config.memberRoleId}>`
-                    : "No configurado",
-                inline: false
-              },
-
-              {
-                name: "🌍 Idioma",
-                value:
-                  config.defaultLanguage === "en"
-                    ? "🇬🇧 English"
-                    : "🇪🇸 Español",
-                inline: false
-              }
-
-            );
-
-
-        await interaction.reply({
-
-          embeds: [embed],
-
-          ephemeral: true
-
-        });
-
-        return;
-      }
-
-    }
-
-
-  } catch (error) {
-
-    console.error(
-      "❌ ERROR EN INTERACTION:",
-      error
-    );
-
-
-    try {
-
-      if (
-        interaction.deferred ||
-        interaction.replied
-      ) {
-
-        await interaction.followUp({
-
-          content:
-            "⚠️ Ha ocurrido un error ejecutando el comando.",
-
-          ephemeral: true
-
-        });
-
-      } else {
-
-        await interaction.reply({
-
-          content:
-            "⚠️ Ha ocurrido un error ejecutando el comando.",
-
-          ephemeral: true
-
-        });
-
-      }
-
-    } catch (secondError) {
-
-      console.error(
-        "❌ No se pudo responder al error:",
-        secondError
-      );
-
-    }
-
-  }
-
-});
-
-
-// ======================================================
-// ERRORES GENERALES
-// ======================================================
-
-client.on("error", error => {
-
-  console.error(
-    "❌ Error de Discord:",
-    error
-  );
-
-});
-
-
-process.on(
-  "unhandledRejection",
-  error => {
-
-    console.error(
-      "❌ Promesa rechazada:",
-      error
-    );
-
-  }
-);
-
-
-// ======================================================
-// CARGAR DATOS E INICIAR
-// ======================================================
-
-loadDatabase();
-
-console.log(
-  "🚀 Iniciando ROK Alliance Manager..."
-);
-
-client.login(TOKEN);
+          content
