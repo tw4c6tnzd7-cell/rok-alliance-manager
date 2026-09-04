@@ -564,48 +564,44 @@ client.on("guildMemberAdd", async member => {
     "Sin configurar";
 
 
-  const spanishText =
+    const welcomeText =
 `👋 ¡Bienvenido/a ${member} a **${community}**!
 
 ⚔️ **Alianza:** ${alliance}
 👑 **Reino:** ${kingdom}
 
-🌍 Selecciona tu idioma usando los botones de abajo.
+¿A qué grupo perteneces?
 
-Esperamos que disfrutes de nuestra comunidad. ❤️`;
+🌍 **Reino / Comunidad**
+Si eres jugador del reino o perteneces a otra alianza.
 
+⚔️ **Miembro de la alianza**
+Si perteneces a nuestra alianza.
 
-  const englishText =
-`👋 Welcome ${member} to **${community}**!
+🇬🇧 English users can also choose their option below.`;
 
-⚔️ **Alliance:** ${alliance}
-👑 **Kingdom:** ${kingdom}
+  const entryButtons = new ActionRowBuilder().addComponents(
 
-🌍 Choose your language using the buttons below.
+    new ButtonBuilder()
+      .setCustomId(`join_community_${member.id}`)
+      .setLabel("Reino / Comunidad")
+      .setEmoji("🌍")
+      .setStyle(ButtonStyle.Secondary),
 
-We hope you enjoy our community. ❤️`;
+    new ButtonBuilder()
+      .setCustomId(`join_alliance_${member.id}`)
+      .setLabel("Miembro de la alianza")
+      .setEmoji("⚔️")
+      .setStyle(ButtonStyle.Primary)
 
+  );
 
   try {
 
-    const message = await channel.send({
-
-      content: spanishText,
-
-      components: [
-        languageButtons()
-      ]
-
+    await channel.send({
+      content: welcomeText,
+      components: [entryButtons]
     });
-
-
-    database.messages[message.id] = {
-      spanish: spanishText,
-      english: englishText
-    };
-
-
-    saveDatabase();
 
   } catch (error) {
 
@@ -635,7 +631,482 @@ client.on("interactionCreate", async interaction => {
     if (interaction.isButton()) {
 
       if (!interaction.guild) return;
+// ==================================================
+// ENTRADA: REINO / COMUNIDAD
+// ==================================================
 
+if (interaction.customId.startsWith("join_community_")) {
+
+  const targetUserId =
+    interaction.customId.replace(
+      "join_community_",
+      ""
+    );
+
+  // Solo la persona mencionada en la bienvenida
+  // puede utilizar estos botones.
+  if (interaction.user.id !== targetUserId) {
+
+    await interaction.reply({
+      content:
+        "❌ Este botón pertenece al nuevo miembro que acaba de entrar.",
+      ephemeral: true
+    });
+
+    return;
+  }
+
+  await interaction.reply({
+    content:
+`🌍 **Registro completado**
+
+Has entrado como miembro del **Reino / Comunidad**.
+
+Puedes utilizar las zonas públicas del servidor.
+
+Si perteneces a la alianza y te has equivocado, contacta con un R4 o R5.`,
+    ephemeral: true
+  });
+
+  try {
+    await interaction.message.edit({
+      components: []
+    });
+  } catch (error) {
+    console.error(
+      "❌ No se pudieron quitar los botones:",
+      error
+    );
+  }
+
+  return;
+}
+
+
+// ==================================================
+// ENTRADA: SOLICITUD DE ALIANZA
+// ==================================================
+
+if (interaction.customId.startsWith("join_alliance_")) {
+
+  const targetUserId =
+    interaction.customId.replace(
+      "join_alliance_",
+      ""
+    );
+
+  if (interaction.user.id !== targetUserId) {
+
+    await interaction.reply({
+      content:
+        "❌ Este botón pertenece al nuevo miembro que acaba de entrar.",
+      ephemeral: true
+    });
+
+    return;
+  }
+
+  const config =
+    getGuildConfig(
+      interaction.guild.id
+    );
+
+  // De momento utilizamos el canal privado de alianza
+  // para que R4/R5 reciban las solicitudes.
+  if (!config.allianceChannelId) {
+
+    await interaction.reply({
+      content:
+`❌ No está configurado el canal privado de la alianza.
+
+Un administrador debe utilizar:
+
+\`/configurar canal_alianza\``,
+      ephemeral: true
+    });
+
+    return;
+  }
+
+  const requestChannel =
+    interaction.guild.channels.cache.get(
+      config.allianceChannelId
+    );
+
+  if (!requestChannel) {
+
+    await interaction.reply({
+      content:
+        "❌ No encuentro el canal privado de la alianza.",
+      ephemeral: true
+    });
+
+    return;
+  }
+
+
+  const approvalButtons =
+    new ActionRowBuilder().addComponents(
+
+      new ButtonBuilder()
+        .setCustomId(
+          `approve_alliance_${targetUserId}`
+        )
+        .setLabel("Aprobar como R1")
+        .setEmoji("✅")
+        .setStyle(ButtonStyle.Success),
+
+      new ButtonBuilder()
+        .setCustomId(
+          `reject_alliance_${targetUserId}`
+        )
+        .setLabel("Rechazar")
+        .setEmoji("❌")
+        .setStyle(ButtonStyle.Danger)
+
+    );
+
+
+  const requestEmbed =
+    new EmbedBuilder()
+
+      .setTitle(
+        "⚔️ Nueva solicitud de alianza"
+      )
+
+      .setDescription(
+`👤 **Usuario:** <@${targetUserId}>
+
+🆔 **Discord ID:** ${targetUserId}
+
+El usuario indica que pertenece a la alianza.
+
+Un **R4, R5 o administrador** debe verificarlo antes de darle acceso privado.`
+      )
+
+      .setFooter({
+        text:
+          "ROK Alliance Manager • Verificación de miembros"
+      });
+
+
+  await requestChannel.send({
+    embeds: [
+      requestEmbed
+    ],
+    components: [
+      approvalButtons
+    ]
+  });
+
+
+  await interaction.reply({
+    content:
+`⚔️ **Solicitud enviada correctamente**
+
+Un **R4 o R5** comprobará que perteneces a la alianza.
+
+🔒 Todavía no tienes acceso a los canales privados.
+
+Recibirás el acceso cuando tu solicitud sea aprobada.`,
+    ephemeral: true
+  });
+
+
+  try {
+
+    await interaction.message.edit({
+      components: []
+    });
+
+  } catch (error) {
+
+    console.error(
+      "❌ No se pudieron quitar los botones:",
+      error
+    );
+
+  }
+
+  return;
+}
+
+
+// ==================================================
+// APROBAR MIEMBRO DE ALIANZA
+// ==================================================
+
+if (
+  interaction.customId.startsWith(
+    "approve_alliance_"
+  )
+) {
+
+  const targetUserId =
+    interaction.customId.replace(
+      "approve_alliance_",
+      ""
+    );
+
+
+  // Comprobamos si quien aprueba es
+  // administrador, R4 o R5.
+  const isAdmin =
+    interaction.member.permissions.has(
+      PermissionFlagsBits.ManageGuild
+    );
+
+
+  const isR4orR5 =
+    interaction.member.roles.cache.some(
+      role =>
+        role.name.includes("R4") ||
+        role.name.includes("R5")
+    );
+
+
+  if (!isAdmin && !isR4orR5) {
+
+    await interaction.reply({
+      content:
+        "❌ Solo un **R4, R5 o administrador** puede aprobar miembros.",
+      ephemeral: true
+    });
+
+    return;
+  }
+
+
+  const config =
+    getGuildConfig(
+      interaction.guild.id
+    );
+
+
+  // Este rol debe ser R1.
+  if (!config.memberRoleId) {
+
+    await interaction.reply({
+      content:
+`❌ No está configurado el rol inicial de la alianza.
+
+Utiliza:
+
+\`/configurar rol\`
+
+y selecciona **🔶 R1**.`,
+      ephemeral: true
+    });
+
+    return;
+  }
+
+
+  const allianceRole =
+    interaction.guild.roles.cache.get(
+      config.memberRoleId
+    );
+
+
+  if (!allianceRole) {
+
+    await interaction.reply({
+      content:
+        "❌ El rol configurado ya no existe.",
+      ephemeral: true
+    });
+
+    return;
+  }
+
+
+  let targetMember;
+
+  try {
+
+    targetMember =
+      await interaction.guild.members.fetch(
+        targetUserId
+      );
+
+  } catch (error) {
+
+    await interaction.reply({
+      content:
+        "❌ Ese usuario ya no está dentro del servidor.",
+      ephemeral: true
+    });
+
+    return;
+  }
+
+
+  try {
+
+    await targetMember.roles.add(
+      allianceRole
+    );
+
+  } catch (error) {
+
+    console.error(
+      "❌ Error asignando R1:",
+      error
+    );
+
+    await interaction.reply({
+      content:
+`❌ No puedo asignar ${allianceRole}.
+
+Comprueba que el rol **ROK Alliance Manager** esté situado por encima de **R1** en la lista de roles.`,
+      ephemeral: true
+    });
+
+    return;
+  }
+
+
+  const approvedEmbed =
+    new EmbedBuilder()
+
+      .setTitle(
+        "✅ Miembro de alianza aprobado"
+      )
+
+      .setDescription(
+`👤 <@${targetUserId}>
+
+⚔️ **Solicitud aprobada por:** ${interaction.user}
+
+🎭 **Rol asignado:** ${allianceRole}
+
+🔒 El miembro ya puede acceder a las zonas privadas correspondientes.`
+      );
+
+
+  await interaction.update({
+    embeds: [
+      approvedEmbed
+    ],
+    components: []
+  });
+
+
+  try {
+
+    await targetMember.send(
+`✅ Tu solicitud para entrar en la alianza de **${interaction.guild.name}** ha sido aprobada.
+
+🎭 Se te ha asignado el rol **${allianceRole.name}**.
+
+Ya puedes acceder a los canales privados de la alianza.`
+    );
+
+  } catch (error) {
+
+    console.log(
+      "ℹ️ El usuario tiene los mensajes privados cerrados."
+    );
+
+  }
+
+  return;
+}
+
+
+// ==================================================
+// RECHAZAR SOLICITUD DE ALIANZA
+// ==================================================
+
+if (
+  interaction.customId.startsWith(
+    "reject_alliance_"
+  )
+) {
+
+  const targetUserId =
+    interaction.customId.replace(
+      "reject_alliance_",
+      ""
+    );
+
+
+  const isAdmin =
+    interaction.member.permissions.has(
+      PermissionFlagsBits.ManageGuild
+    );
+
+
+  const isR4orR5 =
+    interaction.member.roles.cache.some(
+      role =>
+        role.name.includes("R4") ||
+        role.name.includes("R5")
+    );
+
+
+  if (!isAdmin && !isR4orR5) {
+
+    await interaction.reply({
+      content:
+        "❌ Solo un **R4, R5 o administrador** puede rechazar solicitudes.",
+      ephemeral: true
+    });
+
+    return;
+  }
+
+
+  const rejectedEmbed =
+    new EmbedBuilder()
+
+      .setTitle(
+        "❌ Solicitud de alianza rechazada"
+      )
+
+      .setDescription(
+`👤 <@${targetUserId}>
+
+La solicitud ha sido rechazada por ${interaction.user}.
+
+El usuario continuará teniendo solamente acceso a **Reino / Comunidad**.`
+      );
+
+
+  await interaction.update({
+    embeds: [
+      rejectedEmbed
+    ],
+    components: []
+  });
+
+
+  try {
+
+    const targetMember =
+      await interaction.guild.members.fetch(
+        targetUserId
+      );
+
+
+    await targetMember.send(
+`❌ Tu solicitud para acceder a la zona privada de la alianza de **${interaction.guild.name}** no ha sido aprobada.
+
+Seguirás teniendo acceso a la zona de Reino / Comunidad.
+
+Si crees que es un error, contacta con un R4 o R5.`
+    );
+
+  } catch (error) {
+
+    console.log(
+      "ℹ️ No se pudo enviar DM al usuario rechazado."
+    );
+
+  }
+
+  return;
+}
 
       if (interaction.customId === "language_es") {
 
