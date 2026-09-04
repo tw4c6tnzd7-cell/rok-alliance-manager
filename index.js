@@ -1,1438 +1,1682 @@
-import os
-import sqlite3
-import logging
-from typing import Optional
+const {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  PermissionFlagsBits,
+  ChannelType
+} = require("discord.js");
 
-import discord
-from discord import app_commands
-from discord.ext import commands
-from dotenv import load_dotenv
-from deep_translator import GoogleTranslator
-
-
-# =========================================================
-# CONFIGURACIÓN
-# =========================================================
-
-load_dotenv()
-
-TOKEN = os.getenv("DISCORD_TOKEN")
-
-if not TOKEN:
-    raise RuntimeError(
-        "No se ha encontrado DISCORD_TOKEN. "
-        "Añádelo como variable de entorno y NO lo escribas directamente en el código."
-    )
+const fs = require("fs");
+const path = require("path");
+const translate = require("translate-google");
+require("dotenv").config();
 
 
-# =========================================================
-# LOGS
-# =========================================================
+// ======================================================
+// CONFIGURACIÓN GENERAL
+// ======================================================
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-)
+const TOKEN = process.env.DISCORD_TOKEN;
 
-logger = logging.getLogger("rok-alliance-manager")
-
-
-# =========================================================
-# BASE DE DATOS
-# =========================================================
-
-DB_FILE = "rok_bot.db"
+if (!TOKEN) {
+  console.error("❌ ERROR: No existe la variable DISCORD_TOKEN.");
+  process.exit(1);
+}
 
 
-def db_connection():
-    return sqlite3.connect(DB_FILE)
+// ======================================================
+// CLIENTE DISCORD
+// ======================================================
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+  ]
+});
 
 
-def init_database():
-    conn = db_connection()
-    cursor = conn.cursor()
+// ======================================================
+// BASE DE DATOS SIMPLE EN JSON
+// ======================================================
 
-    # Configuración por servidor
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS guild_config (
-            guild_id INTEGER PRIMARY KEY,
-            alliance_name TEXT,
-            kingdom TEXT,
-            community_name TEXT,
-            default_language TEXT DEFAULT 'es',
-            welcome_channel_id INTEGER,
-            rules_channel_id INTEGER,
-            alliance_role_id INTEGER,
-            community_description TEXT,
-            alliance_description TEXT,
-            invite_link TEXT
-        )
-        """
-    )
+const DATA_FILE = path.join(__dirname, "data.json");
 
-    # Preferencia de idioma de cada usuario
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS user_language (
-            guild_id INTEGER,
-            user_id INTEGER,
-            language TEXT DEFAULT 'es',
-            PRIMARY KEY (guild_id, user_id)
-        )
-        """
-    )
-
-    # Traducciones asociadas a mensajes bilingües
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS bilingual_messages (
-            message_id INTEGER PRIMARY KEY,
-            guild_id INTEGER,
-            spanish_text TEXT,
-            english_text TEXT
-        )
-        """
-    )
-
-    conn.commit()
-    conn.close()
+let database = {
+  guilds: {},
+  users: {},
+  messages: {}
+};
 
 
-def ensure_guild_config(guild_id: int):
-    conn = db_connection()
-    cursor = conn.cursor()
+function loadDatabase() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const data = fs.readFileSync(DATA_FILE, "utf8");
 
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO guild_config (guild_id)
-        VALUES (?)
-        """,
-        (guild_id,)
-    )
+      if (data.trim()) {
+        database = JSON.parse(data);
+      }
+    }
+  } catch (error) {
+    console.error("❌ Error cargando data.json:", error);
+  }
 
-    conn.commit()
-    conn.close()
-
-
-def get_guild_config(guild_id: int):
-    ensure_guild_config(guild_id)
-
-    conn = db_connection()
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT *
-        FROM guild_config
-        WHERE guild_id = ?
-        """,
-        (guild_id,)
-    )
-
-    result = cursor.fetchone()
-    conn.close()
-
-    return result
+  if (!database.guilds) database.guilds = {};
+  if (!database.users) database.users = {};
+  if (!database.messages) database.messages = {};
+}
 
 
-def update_guild_config(guild_id: int, **kwargs):
-    ensure_guild_config(guild_id)
+function saveDatabase() {
+  try {
+    fs.writeFileSync(
+      DATA_FILE,
+      JSON.stringify(database, null, 2),
+      "utf8"
+    );
+  } catch (error) {
+    console.error("❌ Error guardando data.json:", error);
+  }
+}
 
-    valid_fields = {
-        "alliance_name",
-        "kingdom",
-        "community_name",
-        "default_language",
-        "welcome_channel_id",
-        "rules_channel_id",
-        "alliance_role_id",
-        "community_description",
-        "alliance_description",
-        "invite_link",
+
+function getGuildConfig(guildId) {
+  if (!database.guilds[guildId]) {
+    database.guilds[guildId] = {
+      allianceName: "",
+      kingdom: "",
+      communityName: "",
+      allianceDescription: "",
+      communityDescription: "",
+      welcomeChannelId: "",
+      rulesChannelId: "",
+      memberRoleId: "",
+      defaultLanguage: "es",
+      inviteLink: ""
+    };
+
+    saveDatabase();
+  }
+
+  return database.guilds[guildId];
+}
+
+
+function getUserLanguage(guildId, userId) {
+  const key = `${guildId}_${userId}`;
+
+  if (database.users[key]) {
+    return database.users[key];
+  }
+
+  return getGuildConfig(guildId).defaultLanguage || "es";
+}
+
+
+function setUserLanguage(guildId, userId, language) {
+  const key = `${guildId}_${userId}`;
+
+  database.users[key] = language;
+
+  saveDatabase();
+}
+
+
+// ======================================================
+// TRADUCCIÓN
+// ======================================================
+
+async function translateText(text, targetLanguage) {
+  try {
+    const result = await translate(text, {
+      to: targetLanguage
+    });
+
+    return result;
+  } catch (error) {
+    console.error("❌ Error traduciendo:", error);
+
+    if (targetLanguage === "es") {
+      return "⚠️ No se pudo realizar la traducción.";
     }
 
-    conn = db_connection()
-    cursor = conn.cursor()
-
-    for field, value in kwargs.items():
-        if field not in valid_fields:
-            continue
-
-        cursor.execute(
-            f"""
-            UPDATE guild_config
-            SET {field} = ?
-            WHERE guild_id = ?
-            """,
-            (value, guild_id)
-        )
-
-    conn.commit()
-    conn.close()
-
-
-def set_user_language(guild_id: int, user_id: int, language: str):
-    conn = db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        INSERT INTO user_language (guild_id, user_id, language)
-        VALUES (?, ?, ?)
-        ON CONFLICT(guild_id, user_id)
-        DO UPDATE SET language = excluded.language
-        """,
-        (guild_id, user_id, language)
-    )
-
-    conn.commit()
-    conn.close()
-
-
-def get_user_language(guild_id: int, user_id: int):
-    conn = db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT language
-        FROM user_language
-        WHERE guild_id = ? AND user_id = ?
-        """,
-        (guild_id, user_id)
-    )
-
-    result = cursor.fetchone()
-    conn.close()
-
-    if result:
-        return result[0]
-
-    config = get_guild_config(guild_id)
-    return config["default_language"] or "es"
-
-
-def save_bilingual_message(
-    message_id: int,
-    guild_id: int,
-    spanish_text: str,
-    english_text: str
-):
-    conn = db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO bilingual_messages (
-            message_id,
-            guild_id,
-            spanish_text,
-            english_text
-        )
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            message_id,
-            guild_id,
-            spanish_text,
-            english_text
-        )
-    )
-
-    conn.commit()
-    conn.close()
-
-
-def get_bilingual_message(message_id: int):
-    conn = db_connection()
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT *
-        FROM bilingual_messages
-        WHERE message_id = ?
-        """,
-        (message_id,)
-    )
+    return "⚠️ Translation could not be completed.";
+  }
+}
+
+
+// ======================================================
+// BOTONES DE IDIOMA
+// ======================================================
+
+function languageButtons() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("language_es")
+      .setLabel("Español")
+      .setEmoji("🇪🇸")
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId("language_en")
+      .setLabel("English")
+      .setEmoji("🇬🇧")
+      .setStyle(ButtonStyle.Primary)
+  );
+}
+
+
+// ======================================================
+// COMANDOS SLASH
+// ======================================================
+
+const commands = [
+
+  {
+    name: "ayuda",
+    description: "Muestra todos los comandos del bot"
+  },
+
+  {
+    name: "idioma",
+    description: "Selecciona español o inglés"
+  },
+
+  {
+    name: "alianza",
+    description: "Muestra información de la alianza"
+  },
+
+  {
+    name: "comunidad",
+    description: "Muestra información de la comunidad"
+  },
+
+  {
+    name: "traducir",
+    description: "Traduce un texto",
+    options: [
+      {
+        name: "texto",
+        description: "Texto que quieres traducir",
+        type: 3,
+        required: true
+      },
+      {
+        name: "idioma",
+        description: "Idioma de destino",
+        type: 3,
+        required: true,
+        choices: [
+          {
+            name: "🇪🇸 Español",
+            value: "es"
+          },
+          {
+            name: "🇬🇧 English",
+            value: "en"
+          }
+        ]
+      }
+    ]
+  },
+
+  {
+    name: "publicar",
+    description: "Publica un mensaje bilingüe",
+    default_member_permissions:
+      PermissionFlagsBits.ManageGuild.toString(),
+
+    options: [
+      {
+        name: "texto",
+        description: "Mensaje que quieres publicar",
+        type: 3,
+        required: true
+      },
+
+      {
+        name: "canal",
+        description: "Canal donde publicar",
+        type: 7,
+        required: false,
+        channel_types: [
+          ChannelType.GuildText
+        ]
+      }
+    ]
+  },
+
+  {
+    name: "configurar",
+    description: "Configura el bot",
+
+    default_member_permissions:
+      PermissionFlagsBits.ManageGuild.toString(),
+
+    options: [
+
+      {
+        name: "alianza",
+        description: "Configura la alianza",
+        type: 1,
+
+        options: [
+          {
+            name: "nombre",
+            description: "Nombre de la alianza",
+            type: 3,
+            required: true
+          },
+
+          {
+            name: "reino",
+            description: "Número o nombre del reino",
+            type: 3,
+            required: true
+          },
+
+          {
+            name: "descripcion",
+            description: "Descripción de la alianza",
+            type: 3,
+            required: false
+          }
+        ]
+      },
+
+      {
+        name: "comunidad",
+        description: "Configura la comunidad",
+        type: 1,
+
+        options: [
+          {
+            name: "nombre",
+            description: "Nombre de la comunidad",
+            type: 3,
+            required: true
+          },
+
+          {
+            name: "descripcion",
+            description: "Descripción de la comunidad",
+            type: 3,
+            required: false
+          },
+
+          {
+            name: "invitacion",
+            description: "Enlace permanente de invitación",
+            type: 3,
+            required: false
+          }
+        ]
+      },
+
+      {
+        name: "bienvenida",
+        description: "Selecciona el canal de bienvenida",
+        type: 1,
+
+        options: [
+          {
+            name: "canal",
+            description: "Canal de bienvenida",
+            type: 7,
+            required: true,
+            channel_types: [
+              ChannelType.GuildText
+            ]
+          }
+        ]
+      },
+
+      {
+        name: "normas",
+        description: "Selecciona el canal de normas",
+        type: 1,
+
+        options: [
+          {
+            name: "canal",
+            description: "Canal de normas",
+            type: 7,
+            required: true,
+            channel_types: [
+              ChannelType.GuildText
+            ]
+          }
+        ]
+      },
+
+      {
+        name: "rol",
+        description: "Configura el rol automático",
+        type: 1,
+
+        options: [
+          {
+            name: "rol",
+            description: "Rol para nuevos miembros",
+            type: 8,
+            required: true
+          }
+        ]
+      },
+
+      {
+        name: "idioma",
+        description: "Idioma predeterminado",
+        type: 1,
+
+        options: [
+          {
+            name: "idioma",
+            description: "Idioma predeterminado",
+            type: 3,
+            required: true,
+
+            choices: [
+              {
+                name: "🇪🇸 Español",
+                value: "es"
+              },
+
+              {
+                name: "🇬🇧 English",
+                value: "en"
+              }
+            ]
+          }
+        ]
+      },
+
+      {
+        name: "ver",
+        description: "Muestra la configuración actual",
+        type: 1
+      }
+
+    ]
+  }
+
+];
+
+
+// ======================================================
+// BOT LISTO
+// ======================================================
+
+client.once("ready", async () => {
+
+  console.log("");
+  console.log("======================================");
+  console.log("✅ ROK ALLIANCE MANAGER CONECTADO");
+  console.log(`🤖 Bot: ${client.user.tag}`);
+  console.log(`🌍 Servidores: ${client.guilds.cache.size}`);
+  console.log("======================================");
+  console.log("");
+
+  try {
+
+    await client.application.commands.set(commands);
+
+    console.log(
+      `✅ ${commands.length} comandos principales registrados.`
+    );
+
+  } catch (error) {
+
+    console.error(
+      "❌ Error registrando comandos:",
+      error
+    );
 
-    result = cursor.fetchone()
-    conn.close()
+  }
 
-    return result
+});
 
 
-# =========================================================
-# TRADUCCIÓN
-# =========================================================
+// ======================================================
+// NUEVO MIEMBRO
+// ======================================================
 
-def translate_text(text: str, target: str) -> str:
-    """
-    target:
-        es -> español
-        en -> inglés
-    """
+client.on("guildMemberAdd", async member => {
 
-    try:
-        translated = GoogleTranslator(
-            source="auto",
-            target=target
-        ).translate(text)
+  if (member.user.bot) return;
 
-        return translated
-
-    except Exception as error:
-        logger.exception("Error traduciendo texto: %s", error)
-
-        if target == "es":
-            return "⚠️ No se pudo realizar la traducción al español."
-
-        return "⚠️ Translation could not be completed."
-
-
-# =========================================================
-# INTENTS
-# =========================================================
-
-intents = discord.Intents.default()
-
-# Necesario para detectar nuevos miembros
-intents.members = True
-
-
-# =========================================================
-# BOT
-# =========================================================
-
-class ROKBot(commands.Bot):
-
-    def __init__(self):
-        super().__init__(
-            command_prefix="!",
-            intents=intents
-        )
-
-    async def setup_hook(self):
-        # Vista persistente de idiomas.
-        self.add_view(LanguageButtons())
-
-        try:
-            synced = await self.tree.sync()
-            logger.info(
-                "Comandos sincronizados: %s",
-                len(synced)
-            )
-
-        except Exception as error:
-            logger.exception(
-                "Error sincronizando comandos: %s",
-                error
-            )
-
-
-bot = ROKBot()
-
-
-# =========================================================
-# BOTONES PERSISTENTES ESPAÑOL / INGLÉS
-# =========================================================
-
-class LanguageButtons(discord.ui.View):
-
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(
-        label="Español",
-        emoji="🇪🇸",
-        style=discord.ButtonStyle.primary,
-        custom_id="rok_language_spanish"
-    )
-    async def spanish_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-        if interaction.guild is None:
-            await interaction.response.send_message(
-                "Este botón solamente funciona dentro del servidor.",
-                ephemeral=True
-            )
-            return
-
-        # Guardamos la preferencia del usuario.
-        set_user_language(
-            interaction.guild.id,
-            interaction.user.id,
-            "es"
-        )
-
-        stored_message = None
-
-        if interaction.message:
-            stored_message = get_bilingual_message(
-                interaction.message.id
-            )
-
-        if stored_message:
-            await interaction.response.send_message(
-                f"🇪🇸 **Español**\n\n"
-                f"{stored_message['spanish_text']}",
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.send_message(
-            "🇪🇸 Idioma configurado en **Español**.",
-            ephemeral=True
-        )
-
-    @discord.ui.button(
-        label="English",
-        emoji="🇬🇧",
-        style=discord.ButtonStyle.primary,
-        custom_id="rok_language_english"
-    )
-    async def english_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-        if interaction.guild is None:
-            await interaction.response.send_message(
-                "This button only works inside the server.",
-                ephemeral=True
-            )
-            return
-
-        set_user_language(
-            interaction.guild.id,
-            interaction.user.id,
-            "en"
-        )
-
-        stored_message = None
-
-        if interaction.message:
-            stored_message = get_bilingual_message(
-                interaction.message.id
-            )
-
-        if stored_message:
-            await interaction.response.send_message(
-                f"🇬🇧 **English**\n\n"
-                f"{stored_message['english_text']}",
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.send_message(
-            "🇬🇧 Language set to **English**.",
-            ephemeral=True
-        )
-
-
-# =========================================================
-# EVENTOS
-# =========================================================
-
-@bot.event
-async def on_ready():
-
-    logger.info(
-        "Bot conectado como %s (%s)",
-        bot.user,
-        bot.user.id if bot.user else "?"
-    )
-
-    logger.info(
-        "Conectado a %s servidor(es).",
-        len(bot.guilds)
-    )
-
-    for guild in bot.guilds:
-        ensure_guild_config(guild.id)
-
-
-@bot.event
-async def on_guild_join(guild: discord.Guild):
-    ensure_guild_config(guild.id)
-
-    logger.info(
-        "Bot añadido al servidor: %s (%s)",
-        guild.name,
-        guild.id
-    )
-
-
-@bot.event
-async def on_member_join(member: discord.Member):
-
-    if member.bot:
-        return
-
-    config = get_guild_config(member.guild.id)
-
-    # -----------------------------------------------------
-    # ROL AUTOMÁTICO DE ALIANZA
-    # -----------------------------------------------------
-
-    role_id = config["alliance_role_id"]
-
-    if role_id:
-        role = member.guild.get_role(role_id)
-
-        if role:
-            try:
-                await member.add_roles(
-                    role,
-                    reason="ROK Alliance Manager - nuevo miembro"
-                )
-
-            except discord.Forbidden:
-                logger.warning(
-                    "No puedo asignar el rol %s en %s.",
-                    role.name,
-                    member.guild.name
-                )
-
-            except Exception:
-                logger.exception(
-                    "Error asignando rol automático."
-                )
-
-    # -----------------------------------------------------
-    # MENSAJE DE BIENVENIDA
-    # -----------------------------------------------------
-
-    channel_id = config["welcome_channel_id"]
-
-    if not channel_id:
-        return
-
-    channel = member.guild.get_channel(channel_id)
-
-    if not channel:
-        return
-
-    alliance = config["alliance_name"] or "nuestra alianza"
-    community = config["community_name"] or member.guild.name
-    kingdom = config["kingdom"] or "—"
-
-    spanish = (
-        f"👋 ¡Bienvenido/a {member.mention} a **{community}**!\n\n"
-        f"⚔️ **Alianza:** {alliance}\n"
-        f"👑 **Reino:** {kingdom}\n\n"
-        f"Selecciona tu idioma usando los botones de abajo.\n"
-        f"Esperamos que disfrutes de la comunidad. ❤️"
-    )
-
-    english = (
-        f"👋 Welcome {member.mention} to **{community}**!\n\n"
-        f"⚔️ **Alliance:** {alliance}\n"
-        f"👑 **Kingdom:** {kingdom}\n\n"
-        f"Choose your language using the buttons below.\n"
-        f"We hope you enjoy the community. ❤️"
-    )
-
-    try:
-        message = await channel.send(
-            spanish,
-            view=LanguageButtons()
-        )
-
-        save_bilingual_message(
-            message.id,
-            member.guild.id,
-            spanish,
-            english
-        )
-
-    except Exception:
-        logger.exception(
-            "No se pudo enviar la bienvenida."
-        )
-
-
-# =========================================================
-# COMPROBACIONES
-# =========================================================
-
-def is_admin(interaction: discord.Interaction) -> bool:
-
-    if interaction.guild is None:
-        return False
-
-    permissions = interaction.user.guild_permissions
-
-    return (
-        permissions.administrator
-        or permissions.manage_guild
-    )
-
-
-async def require_admin(interaction: discord.Interaction):
-
-    if is_admin(interaction):
-        return True
-
-    await interaction.response.send_message(
-        "❌ Necesitas el permiso **Gestionar servidor** "
-        "o **Administrador** para utilizar este comando.",
-        ephemeral=True
-    )
-
-    return False
-
-
-# =========================================================
-# /AYUDA
-# =========================================================
-
-@bot.tree.command(
-    name="ayuda",
-    description="Muestra los comandos disponibles del bot."
-)
-async def ayuda(interaction: discord.Interaction):
-
-    if interaction.guild is None:
-        await interaction.response.send_message(
-            "Este comando solamente funciona dentro de un servidor.",
-            ephemeral=True
-        )
-        return
-
-    language = get_user_language(
-        interaction.guild.id,
+  const config = getGuildConfig(member.guild.id);
+
+
+  // ====================================================
+  // ROL AUTOMÁTICO
+  // ====================================================
+
+  if (config.memberRoleId) {
+
+    try {
+
+      const role =
+        member.guild.roles.cache.get(
+          config.memberRoleId
+        );
+
+      if (role) {
+
+        await member.roles.add(
+          role
+        );
+
+      }
+
+    } catch (error) {
+
+      console.error(
+        "❌ No se pudo asignar el rol:",
+        error
+      );
+
+    }
+
+  }
+
+
+  // ====================================================
+  // BIENVENIDA
+  // ====================================================
+
+  if (!config.welcomeChannelId) return;
+
+  const channel =
+    member.guild.channels.cache.get(
+      config.welcomeChannelId
+    );
+
+  if (!channel) return;
+
+
+  const community =
+    config.communityName ||
+    member.guild.name;
+
+  const alliance =
+    config.allianceName ||
+    "Sin configurar";
+
+  const kingdom =
+    config.kingdom ||
+    "Sin configurar";
+
+
+  const spanishText =
+
+`👋 ¡Bienvenido/a ${member} a **${community}**!
+
+⚔️ **Alianza:** ${alliance}
+👑 **Reino:** ${kingdom}
+
+🌍 Selecciona tu idioma usando los botones de abajo.
+
+Esperamos que disfrutes de nuestra comunidad. ❤️`;
+
+
+  const englishText =
+
+`👋 Welcome ${member} to **${community}**!
+
+⚔️ **Alliance:** ${alliance}
+👑 **Kingdom:** ${kingdom}
+
+🌍 Choose your language using the buttons below.
+
+We hope you enjoy our community. ❤️`;
+
+
+  try {
+
+    const message = await channel.send({
+
+      content: spanishText,
+
+      components: [
+        languageButtons()
+      ]
+
+    });
+
+
+    database.messages[message.id] = {
+
+      spanish: spanishText,
+
+      english: englishText
+
+    };
+
+
+    saveDatabase();
+
+  } catch (error) {
+
+    console.error(
+      "❌ Error enviando bienvenida:",
+      error
+    );
+
+  }
+
+});
+
+
+// ======================================================
+// INTERACCIONES
+// ======================================================
+
+client.on("interactionCreate", async interaction => {
+
+  try {
+
+
+    // ==================================================
+    // BOTONES
+    // ==================================================
+
+    if (interaction.isButton()) {
+
+      if (!interaction.guild) return;
+
+
+      if (
+        interaction.customId === "language_es"
+      ) {
+
+        setUserLanguage(
+          interaction.guild.id,
+          interaction.user.id,
+          "es"
+        );
+
+
+        const saved =
+          database.messages[
+            interaction.message.id
+          ];
+
+
+        if (saved) {
+
+          await interaction.reply({
+
+            content:
+`🇪🇸 **Español**
+
+${saved.spanish}`,
+
+            ephemeral: true
+
+          });
+
+        } else {
+
+          await interaction.reply({
+
+            content:
+              "🇪🇸 Idioma configurado en **Español**.",
+
+            ephemeral: true
+
+          });
+
+        }
+
+        return;
+      }
+
+
+      if (
+        interaction.customId === "language_en"
+      ) {
+
+        setUserLanguage(
+          interaction.guild.id,
+          interaction.user.id,
+          "en"
+        );
+
+
+        const saved =
+          database.messages[
+            interaction.message.id
+          ];
+
+
+        if (saved) {
+
+          await interaction.reply({
+
+            content:
+`🇬🇧 **English**
+
+${saved.english}`,
+
+            ephemeral: true
+
+          });
+
+        } else {
+
+          await interaction.reply({
+
+            content:
+              "🇬🇧 Language set to **English**.",
+
+            ephemeral: true
+
+          });
+
+        }
+
+        return;
+      }
+
+    }
+
+
+    // ==================================================
+    // SLASH COMMANDS
+    // ==================================================
+
+    if (!interaction.isChatInputCommand()) {
+      return;
+    }
+
+
+    if (!interaction.guild) {
+
+      await interaction.reply({
+
+        content:
+          "❌ Este comando solamente funciona dentro de un servidor.",
+
+        ephemeral: true
+
+      });
+
+      return;
+    }
+
+
+    const guildId =
+      interaction.guild.id;
+
+    const config =
+      getGuildConfig(guildId);
+
+    const language =
+      getUserLanguage(
+        guildId,
         interaction.user.id
-    )
-
-    if language == "en":
-
-        embed = discord.Embed(
-            title="⚔️ ROK Alliance Manager",
-            description=(
-                "Community and alliance management bot "
-                "for Rise of Kingdoms."
-            )
-        )
-
-        embed.add_field(
-            name="🌍 Language",
-            value="`/idioma`",
-            inline=False
-        )
-
-        embed.add_field(
-            name="⚔️ Alliance information",
-            value="`/alianza`",
-            inline=False
-        )
-
-        embed.add_field(
-            name="👥 Community information",
-            value="`/comunidad`",
-            inline=False
-        )
-
-        embed.add_field(
-            name="🌐 Translate",
-            value="`/traducir`",
-            inline=False
-        )
-
-        embed.add_field(
-            name="📢 Bilingual publication",
-            value="`/publicar` — Administrators",
-            inline=False
-        )
-
-        embed.add_field(
-            name="⚙️ Server configuration",
-            value="`/configurar` — Administrators",
-            inline=False
-        )
-
-    else:
-
-        embed = discord.Embed(
-            title="⚔️ ROK Alliance Manager",
-            description=(
-                "Bot para gestionar la comunidad y la alianza "
-                "de Rise of Kingdoms."
-            )
-        )
-
-        embed.add_field(
-            name="🌍 Idioma",
-            value="`/idioma`",
-            inline=False
-        )
-
-        embed.add_field(
-            name="⚔️ Información de alianza",
-            value="`/alianza`",
-            inline=False
-        )
-
-        embed.add_field(
-            name="👥 Información de comunidad",
-            value="`/comunidad`",
-            inline=False
-        )
-
-        embed.add_field(
-            name="🌐 Traductor",
-            value="`/traducir`",
-            inline=False
-        )
-
-        embed.add_field(
-            name="📢 Publicación bilingüe",
-            value="`/publicar` — Administradores",
-            inline=False
-        )
-
-        embed.add_field(
-            name="⚙️ Configuración",
-            value="`/configurar` — Administradores",
-            inline=False
-        )
-
-    await interaction.response.send_message(
-        embed=embed,
-        ephemeral=True
-    )
+      );
 
 
-# =========================================================
-# /IDIOMA
-# =========================================================
+    // ==================================================
+    // /IDIOMA
+    // ==================================================
 
-@bot.tree.command(
-    name="idioma",
-    description="Selecciona español o inglés / Select Spanish or English."
-)
-async def idioma(interaction: discord.Interaction):
+    if (
+      interaction.commandName === "idioma"
+    ) {
 
-    if interaction.guild is None:
-        await interaction.response.send_message(
-            "Este comando solamente funciona dentro de un servidor.",
-            ephemeral=True
-        )
-        return
+      await interaction.reply({
 
-    await interaction.response.send_message(
-        "🌍 **Selecciona tu idioma / Select your language**",
-        view=LanguageButtons(),
-        ephemeral=True
-    )
+        content:
+          "🌍 **Selecciona tu idioma / Select your language**",
 
+        components: [
+          languageButtons()
+        ],
 
-# =========================================================
-# /TRADUCIR
-# =========================================================
+        ephemeral: true
 
-language_choices = [
-    app_commands.Choice(
-        name="🇪🇸 Español",
-        value="es"
-    ),
-    app_commands.Choice(
-        name="🇬🇧 English",
-        value="en"
-    )
-]
+      });
+
+      return;
+    }
 
 
-@bot.tree.command(
-    name="traducir",
-    description="Traduce un texto al español o al inglés."
-)
-@app_commands.describe(
-    texto="Texto que quieres traducir.",
-    idioma="Idioma al que quieres traducir."
-)
-@app_commands.choices(
-    idioma=language_choices
-)
-async def traducir(
-    interaction: discord.Interaction,
-    texto: str,
-    idioma: app_commands.Choice[str]
-):
+    // ==================================================
+    // /AYUDA
+    // ==================================================
 
-    await interaction.response.defer(
-        ephemeral=True
-    )
+    if (
+      interaction.commandName === "ayuda"
+    ) {
 
-    if len(texto) > 4000:
-        await interaction.followup.send(
-            "❌ El texto es demasiado largo. "
-            "Máximo: 4000 caracteres.",
-            ephemeral=True
-        )
-        return
-
-    translation = translate_text(
-        texto,
-        idioma.value
-    )
-
-    if idioma.value == "es":
-        title = "🇪🇸 Traducción al español"
-    else:
-        title = "🇬🇧 English translation"
-
-    embed = discord.Embed(
-        title=title,
-        description=translation
-    )
-
-    await interaction.followup.send(
-        embed=embed,
-        ephemeral=True
-    )
+      const embed =
+        new EmbedBuilder();
 
 
-# =========================================================
-# /PUBLICAR
-# =========================================================
+      if (language === "en") {
 
-@bot.tree.command(
-    name="publicar",
-    description="Publica un mensaje con botones Español / English."
-)
-@app_commands.describe(
-    texto="Mensaje que quieres publicar.",
-    canal="Canal donde quieres publicar el mensaje."
-)
-async def publicar(
-    interaction: discord.Interaction,
-    texto: str,
-    canal: Optional[discord.TextChannel] = None
-):
+        embed
+          .setTitle(
+            "⚔️ ROK Alliance Manager"
+          )
 
-    if interaction.guild is None:
-        return
+          .setDescription(
+            "Community and alliance management bot for Rise of Kingdoms."
+          )
 
-    if not await require_admin(interaction):
-        return
+          .addFields(
 
-    await interaction.response.defer(
-        ephemeral=True
-    )
+            {
+              name: "🌍 Language",
+              value: "`/idioma`"
+            },
 
-    target_channel = canal or interaction.channel
+            {
+              name: "⚔️ Alliance",
+              value: "`/alianza`"
+            },
 
-    if not isinstance(target_channel, discord.TextChannel):
-        await interaction.followup.send(
-            "❌ Debes seleccionar un canal de texto.",
-            ephemeral=True
-        )
-        return
+            {
+              name: "👥 Community",
+              value: "`/comunidad`"
+            },
 
-    if len(texto) > 3500:
-        await interaction.followup.send(
-            "❌ El mensaje es demasiado largo.",
-            ephemeral=True
-        )
-        return
+            {
+              name: "🌐 Translator",
+              value: "`/traducir`"
+            },
 
-    spanish = translate_text(
-        texto,
-        "es"
-    )
+            {
+              name: "📢 Bilingual messages",
+              value:
+                "`/publicar` — Administrators"
+            },
 
-    english = translate_text(
-        texto,
-        "en"
-    )
+            {
+              name: "⚙️ Configuration",
+              value:
+                "`/configurar` — Administrators"
+            }
 
-    embed = discord.Embed(
-        title="🌍 Mensaje de la comunidad / Community Message",
-        description=(
-            "Selecciona tu idioma para leer el mensaje.\n\n"
-            "Choose your language to read the message."
-        )
-    )
+          );
 
-    embed.set_footer(
-        text="ROK Alliance Manager"
-    )
+      } else {
 
-    try:
+        embed
+          .setTitle(
+            "⚔️ ROK Alliance Manager"
+          )
 
-        message = await target_channel.send(
-            embed=embed,
-            view=LanguageButtons()
-        )
+          .setDescription(
+            "Bot para gestionar la alianza y la comunidad de Rise of Kingdoms."
+          )
 
-        save_bilingual_message(
-            message.id,
-            interaction.guild.id,
-            spanish,
-            english
-        )
+          .addFields(
 
-        await interaction.followup.send(
-            f"✅ Publicación enviada correctamente en "
-            f"{target_channel.mention}.",
-            ephemeral=True
-        )
+            {
+              name: "🌍 Idioma",
+              value: "`/idioma`"
+            },
 
-    except discord.Forbidden:
+            {
+              name: "⚔️ Alianza",
+              value: "`/alianza`"
+            },
 
-        await interaction.followup.send(
-            "❌ No tengo permiso para escribir en ese canal.",
-            ephemeral=True
-        )
+            {
+              name: "👥 Comunidad",
+              value: "`/comunidad`"
+            },
+
+            {
+              name: "🌐 Traductor",
+              value: "`/traducir`"
+            },
+
+            {
+              name: "📢 Mensajes bilingües",
+              value:
+                "`/publicar` — Administradores"
+            },
+
+            {
+              name: "⚙️ Configuración",
+              value:
+                "`/configurar` — Administradores"
+            }
+
+          );
+
+      }
 
 
-# =========================================================
-# /ALIANZA
-# =========================================================
+      await interaction.reply({
+        embeds: [embed],
+        ephemeral: true
+      });
 
-@bot.tree.command(
-    name="alianza",
-    description="Muestra información de la alianza."
-)
-async def alianza(interaction: discord.Interaction):
+      return;
+    }
 
-    if interaction.guild is None:
-        return
 
-    config = get_guild_config(
-        interaction.guild.id
-    )
+    // ==================================================
+    // /TRADUCIR
+    // ==================================================
 
-    language = get_user_language(
-        interaction.guild.id,
-        interaction.user.id
-    )
+    if (
+      interaction.commandName === "traducir"
+    ) {
 
-    alliance_name = (
-        config["alliance_name"]
-        or "Sin configurar"
-    )
+      const text =
+        interaction.options.getString(
+          "texto"
+        );
 
-    kingdom = (
-        config["kingdom"]
-        or "Sin configurar"
-    )
+      const destination =
+        interaction.options.getString(
+          "idioma"
+        );
 
-    description = (
-        config["alliance_description"]
-        or "Sin descripción."
-    )
 
-    if language == "en":
+      await interaction.deferReply({
+        ephemeral: true
+      });
 
-        description = translate_text(
+
+      const translation =
+        await translateText(
+          text,
+          destination
+        );
+
+
+      const embed =
+        new EmbedBuilder()
+
+          .setTitle(
+            destination === "es"
+              ? "🇪🇸 Traducción al español"
+              : "🇬🇧 English translation"
+          )
+
+          .setDescription(
+            translation
+          );
+
+
+      await interaction.editReply({
+
+        embeds: [embed]
+
+      });
+
+      return;
+    }
+
+
+    // ==================================================
+    // /ALIANZA
+    // ==================================================
+
+    if (
+      interaction.commandName === "alianza"
+    ) {
+
+      let description =
+        config.allianceDescription ||
+        "Sin descripción.";
+
+
+      if (language === "en") {
+
+        description =
+          await translateText(
             description,
             "en"
-        )
+          );
 
-        embed = discord.Embed(
-            title=f"⚔️ {alliance_name}",
-            description=description
-        )
-
-        embed.add_field(
-            name="👑 Kingdom",
-            value=kingdom
-        )
-
-        embed.add_field(
-            name="👥 Members",
-            value=str(interaction.guild.member_count)
-        )
-
-    else:
-
-        embed = discord.Embed(
-            title=f"⚔️ {alliance_name}",
-            description=description
-        )
-
-        embed.add_field(
-            name="👑 Reino",
-            value=kingdom
-        )
-
-        embed.add_field(
-            name="👥 Miembros",
-            value=str(interaction.guild.member_count)
-        )
-
-    await interaction.response.send_message(
-        embed=embed
-    )
+      }
 
 
-# =========================================================
-# /COMUNIDAD
-# =========================================================
+      const embed =
+        new EmbedBuilder()
 
-@bot.tree.command(
-    name="comunidad",
-    description="Muestra información sobre la comunidad."
-)
-async def comunidad(interaction: discord.Interaction):
+          .setTitle(
+            `⚔️ ${
+              config.allianceName ||
+              "Alianza"
+            }`
+          )
 
-    if interaction.guild is None:
-        return
+          .setDescription(
+            description
+          );
 
-    config = get_guild_config(
-        interaction.guild.id
-    )
 
-    language = get_user_language(
-        interaction.guild.id,
-        interaction.user.id
-    )
+      if (language === "en") {
 
-    community_name = (
-        config["community_name"]
-        or interaction.guild.name
-    )
+        embed.addFields(
 
-    description = (
-        config["community_description"]
-        or "Comunidad de Rise of Kingdoms."
-    )
+          {
+            name: "👑 Kingdom",
+            value:
+              config.kingdom ||
+              "Not configured",
+            inline: true
+          },
 
-    if language == "en":
-        description = translate_text(
+          {
+            name: "👥 Discord Members",
+            value:
+              `${interaction.guild.memberCount}`,
+            inline: true
+          }
+
+        );
+
+      } else {
+
+        embed.addFields(
+
+          {
+            name: "👑 Reino",
+            value:
+              config.kingdom ||
+              "No configurado",
+            inline: true
+          },
+
+          {
+            name: "👥 Miembros de Discord",
+            value:
+              `${interaction.guild.memberCount}`,
+            inline: true
+          }
+
+        );
+
+      }
+
+
+      await interaction.reply({
+        embeds: [embed]
+      });
+
+      return;
+    }
+
+
+    // ==================================================
+    // /COMUNIDAD
+    // ==================================================
+
+    if (
+      interaction.commandName === "comunidad"
+    ) {
+
+      let description =
+        config.communityDescription ||
+        "Comunidad de Rise of Kingdoms.";
+
+
+      if (language === "en") {
+
+        description =
+          await translateText(
             description,
             "en"
+          );
+
+      }
+
+
+      const embed =
+        new EmbedBuilder()
+
+          .setTitle(
+            `👥 ${
+              config.communityName ||
+              interaction.guild.name
+            }`
+          )
+
+          .setDescription(
+            description
+          );
+
+
+      if (config.rulesChannelId) {
+
+        embed.addFields({
+
+          name:
+            language === "en"
+              ? "📜 Rules"
+              : "📜 Normas",
+
+          value:
+            `<#${config.rulesChannelId}>`,
+
+          inline: false
+
+        });
+
+      }
+
+
+      if (config.inviteLink) {
+
+        embed.addFields({
+
+          name:
+            language === "en"
+              ? "🔗 Invitation"
+              : "🔗 Invitación",
+
+          value:
+            config.inviteLink,
+
+          inline: false
+
+        });
+
+      }
+
+
+      await interaction.reply({
+        embeds: [embed]
+      });
+
+      return;
+    }
+
+
+    // ==================================================
+    // /PUBLICAR
+    // ==================================================
+
+    if (
+      interaction.commandName === "publicar"
+    ) {
+
+      if (
+        !interaction.member.permissions.has(
+          PermissionFlagsBits.ManageGuild
         )
+      ) {
 
-    embed = discord.Embed(
-        title=f"👥 {community_name}",
-        description=description
-    )
+        await interaction.reply({
 
-    if config["rules_channel_id"]:
-        rules_channel = interaction.guild.get_channel(
-            config["rules_channel_id"]
+          content:
+            "❌ Necesitas permiso de **Gestionar servidor**.",
+
+          ephemeral: true
+
+        });
+
+        return;
+      }
+
+
+      const text =
+        interaction.options.getString(
+          "texto"
+        );
+
+
+      const targetChannel =
+        interaction.options.getChannel(
+          "canal"
+        ) ||
+        interaction.channel;
+
+
+      await interaction.deferReply({
+        ephemeral: true
+      });
+
+
+      const spanish =
+        await translateText(
+          text,
+          "es"
+        );
+
+
+      const english =
+        await translateText(
+          text,
+          "en"
+        );
+
+
+      const embed =
+        new EmbedBuilder()
+
+          .setTitle(
+            "🌍 Mensaje de la comunidad / Community Message"
+          )
+
+          .setDescription(
+`Pulsa tu idioma para leer el mensaje.
+
+Choose your language to read the message.`
+          )
+
+          .setFooter({
+            text:
+              "ROK Alliance Manager"
+          });
+
+
+      const sent =
+        await targetChannel.send({
+
+          embeds: [embed],
+
+          components: [
+            languageButtons()
+          ]
+
+        });
+
+
+      database.messages[sent.id] = {
+
+        spanish,
+
+        english
+
+      };
+
+
+      saveDatabase();
+
+
+      await interaction.editReply({
+
+        content:
+          `✅ Mensaje publicado en ${targetChannel}.`
+
+      });
+
+      return;
+    }
+
+
+    // ==================================================
+    // /CONFIGURAR
+    // ==================================================
+
+    if (
+      interaction.commandName === "configurar"
+    ) {
+
+      if (
+        !interaction.member.permissions.has(
+          PermissionFlagsBits.ManageGuild
         )
+      ) {
 
-        if rules_channel:
+        await interaction.reply({
 
-            if language == "en":
-                embed.add_field(
-                    name="📜 Rules",
-                    value=rules_channel.mention,
-                    inline=False
-                )
-            else:
-                embed.add_field(
-                    name="📜 Normas",
-                    value=rules_channel.mention,
-                    inline=False
-                )
+          content:
+            "❌ Necesitas permiso de **Gestionar servidor**.",
 
-    if config["invite_link"]:
+          ephemeral: true
 
-        if language == "en":
-            embed.add_field(
-                name="🔗 Invitation",
-                value=config["invite_link"],
-                inline=False
+        });
+
+        return;
+      }
+
+
+      const subcommand =
+        interaction.options.getSubcommand();
+
+
+      // ================================================
+      // CONFIGURAR ALIANZA
+      // ================================================
+
+      if (
+        subcommand === "alianza"
+      ) {
+
+        config.allianceName =
+          interaction.options.getString(
+            "nombre"
+          );
+
+        config.kingdom =
+          interaction.options.getString(
+            "reino"
+          );
+
+        config.allianceDescription =
+          interaction.options.getString(
+            "descripcion"
+          ) || "";
+
+
+        saveDatabase();
+
+
+        await interaction.reply({
+
+          content:
+`✅ **Alianza configurada**
+
+⚔️ **Alianza:** ${config.allianceName}
+👑 **Reino:** ${config.kingdom}`,
+
+          ephemeral: true
+
+        });
+
+        return;
+      }
+
+
+      // ================================================
+      // CONFIGURAR COMUNIDAD
+      // ================================================
+
+      if (
+        subcommand === "comunidad"
+      ) {
+
+        config.communityName =
+          interaction.options.getString(
+            "nombre"
+          );
+
+
+        config.communityDescription =
+          interaction.options.getString(
+            "descripcion"
+          ) || "";
+
+
+        config.inviteLink =
+          interaction.options.getString(
+            "invitacion"
+          ) || "";
+
+
+        saveDatabase();
+
+
+        await interaction.reply({
+
+          content:
+            "✅ Comunidad configurada correctamente.",
+
+          ephemeral: true
+
+        });
+
+        return;
+      }
+
+
+      // ================================================
+      // CONFIGURAR BIENVENIDA
+      // ================================================
+
+      if (
+        subcommand === "bienvenida"
+      ) {
+
+        const channel =
+          interaction.options.getChannel(
+            "canal"
+          );
+
+
+        config.welcomeChannelId =
+          channel.id;
+
+
+        saveDatabase();
+
+
+        await interaction.reply({
+
+          content:
+            `✅ Canal de bienvenida: ${channel}`,
+
+          ephemeral: true
+
+        });
+
+        return;
+      }
+
+
+      // ================================================
+      // CONFIGURAR NORMAS
+      // ================================================
+
+      if (
+        subcommand === "normas"
+      ) {
+
+        const channel =
+          interaction.options.getChannel(
+            "canal"
+          );
+
+
+        config.rulesChannelId =
+          channel.id;
+
+
+        saveDatabase();
+
+
+        await interaction.reply({
+
+          content:
+            `✅ Canal de normas: ${channel}`,
+
+          ephemeral: true
+
+        });
+
+        return;
+      }
+
+
+      // ================================================
+      // CONFIGURAR ROL
+      // ================================================
+
+      if (
+        subcommand === "rol"
+      ) {
+
+        const role =
+          interaction.options.getRole(
+            "rol"
+          );
+
+
+        const botMember =
+          interaction.guild.members.me;
+
+
+        if (
+          botMember &&
+          role.position >=
+          botMember.roles.highest.position
+        ) {
+
+          await interaction.reply({
+
+            content:
+`❌ No puedo asignar ese rol.
+
+El rol **${role.name}** está por encima o al mismo nivel que mi rol.
+
+Ve a:
+
+**Ajustes del servidor → Roles**
+
+y coloca el rol de **ROK Alliance Manager por encima** del rol ${role}.`,
+
+            ephemeral: true
+
+          });
+
+          return;
+        }
+
+
+        config.memberRoleId =
+          role.id;
+
+
+        saveDatabase();
+
+
+        await interaction.reply({
+
+          content:
+            `✅ Rol automático configurado: ${role}`,
+
+          ephemeral: true
+
+        });
+
+        return;
+      }
+
+
+      // ================================================
+      // CONFIGURAR IDIOMA
+      // ================================================
+
+      if (
+        subcommand === "idioma"
+      ) {
+
+        const selected =
+          interaction.options.getString(
+            "idioma"
+          );
+
+
+        config.defaultLanguage =
+          selected;
+
+
+        saveDatabase();
+
+
+        await interaction.reply({
+
+          content:
+            selected === "es"
+              ? "✅ Idioma predeterminado: 🇪🇸 **Español**"
+              : "✅ Default language: 🇬🇧 **English**",
+
+          ephemeral: true
+
+        });
+
+        return;
+      }
+
+
+      // ================================================
+      // VER CONFIGURACIÓN
+      // ================================================
+
+      if (
+        subcommand === "ver"
+      ) {
+
+        const embed =
+          new EmbedBuilder()
+
+            .setTitle(
+              "⚙️ Configuración de ROK Alliance Manager"
             )
-        else:
-            embed.add_field(
-                name="🔗 Invitación",
-                value=config["invite_link"],
-                inline=False
-            )
-
-    await interaction.response.send_message(
-        embed=embed
-    )
-
-
-# =========================================================
-# GRUPO /CONFIGURAR
-# =========================================================
-
-class ConfigCommands(
-    app_commands.Group,
-    name="configurar",
-    description="Configuración administrativa del bot."
-):
-
-    @app_commands.command(
-        name="alianza",
-        description="Configura la alianza y el reino."
-    )
-    @app_commands.describe(
-        nombre="Nombre de la alianza.",
-        reino="Número o nombre del reino.",
-        descripcion="Descripción de la alianza."
-    )
-    async def configurar_alianza(
-        self,
-        interaction: discord.Interaction,
-        nombre: str,
-        reino: str,
-        descripcion: Optional[str] = None
-    ):
-
-        if interaction.guild is None:
-            return
-
-        if not await require_admin(interaction):
-            return
-
-        update_guild_config(
-            interaction.guild.id,
-            alliance_name=nombre,
-            kingdom=reino,
-            alliance_description=descripcion or ""
-        )
-
-        await interaction.response.send_message(
-            f"✅ **Alianza configurada**\n\n"
-            f"⚔️ Alianza: **{nombre}**\n"
-            f"👑 Reino: **{reino}**",
-            ephemeral=True
-        )
-
-    @app_commands.command(
-        name="comunidad",
-        description="Configura el nombre y descripción de la comunidad."
-    )
-    @app_commands.describe(
-        nombre="Nombre de la comunidad.",
-        descripcion="Descripción de la comunidad.",
-        invitacion="Enlace de invitación permanente."
-    )
-    async def configurar_comunidad(
-        self,
-        interaction: discord.Interaction,
-        nombre: str,
-        descripcion: Optional[str] = None,
-        invitacion: Optional[str] = None
-    ):
-
-        if interaction.guild is None:
-            return
-
-        if not await require_admin(interaction):
-            return
-
-        update_guild_config(
-            interaction.guild.id,
-            community_name=nombre,
-            community_description=descripcion or "",
-            invite_link=invitacion or ""
-        )
-
-        await interaction.response.send_message(
-            "✅ Configuración de comunidad guardada.",
-            ephemeral=True
-        )
-
-    @app_commands.command(
-        name="bienvenida",
-        description="Selecciona el canal de bienvenida."
-    )
-    @app_commands.describe(
-        canal="Canal donde el bot dará la bienvenida."
-    )
-    async def configurar_bienvenida(
-        self,
-        interaction: discord.Interaction,
-        canal: discord.TextChannel
-    ):
-
-        if interaction.guild is None:
-            return
-
-        if not await require_admin(interaction):
-            return
-
-        update_guild_config(
-            interaction.guild.id,
-            welcome_channel_id=canal.id
-        )
-
-        await interaction.response.send_message(
-            f"✅ Canal de bienvenida configurado: "
-            f"{canal.mention}",
-            ephemeral=True
-        )
-
-    @app_commands.command(
-        name="normas",
-        description="Selecciona el canal de normas."
-    )
-    @app_commands.describe(
-        canal="Canal que contiene las normas."
-    )
-    async def configurar_normas(
-        self,
-        interaction: discord.Interaction,
-        canal: discord.TextChannel
-    ):
-
-        if interaction.guild is None:
-            return
-
-        if not await require_admin(interaction):
-            return
-
-        update_guild_config(
-            interaction.guild.id,
-            rules_channel_id=canal.id
-        )
-
-        await interaction.response.send_message(
-            f"✅ Canal de normas configurado: "
-            f"{canal.mention}",
-            ephemeral=True
-        )
-
-    @app_commands.command(
-        name="rol",
-        description="Configura el rol automático de miembros."
-    )
-    @app_commands.describe(
-        rol="Rol que recibirán los nuevos miembros."
-    )
-    async def configurar_rol(
-        self,
-        interaction: discord.Interaction,
-        rol: discord.Role
-    ):
-
-        if interaction.guild is None:
-            return
-
-        if not await require_admin(interaction):
-            return
-
-        bot_member = interaction.guild.me
-
-        if bot_member and rol >= bot_member.top_role:
-
-            await interaction.response.send_message(
-                "❌ Ese rol está por encima o al mismo nivel que "
-                "el rol del bot.\n\n"
-                "Mueve el rol del bot por encima de ese rol "
-                "en **Ajustes → Roles**.",
-                ephemeral=True
-            )
-            return
-
-        update_guild_config(
-            interaction.guild.id,
-            alliance_role_id=rol.id
-        )
-
-        await interaction.response.send_message(
-            f"✅ Rol automático configurado: "
-            f"{rol.mention}",
-            ephemeral=True
-        )
-
-    @app_commands.command(
-        name="idioma",
-        description="Configura el idioma predeterminado del servidor."
-    )
-    @app_commands.choices(
-        idioma=language_choices
-    )
-    async def configurar_idioma(
-        self,
-        interaction: discord.Interaction,
-        idioma: app_commands.Choice[str]
-    ):
-
-        if interaction.guild is None:
-            return
-
-        if not await require_admin(interaction):
-            return
-
-        update_guild_config(
-            interaction.guild.id,
-            default_language=idioma.value
-        )
-
-        await interaction.response.send_message(
-            f"✅ Idioma predeterminado: "
-            f"**{idioma.name}**",
-            ephemeral=True
-        )
-
-    @app_commands.command(
-        name="ver",
-        description="Muestra la configuración actual."
-    )
-    async def ver_configuracion(
-        self,
-        interaction: discord.Interaction
-    ):
-
-        if interaction.guild is None:
-            return
-
-        if not await require_admin(interaction):
-            return
-
-        config = get_guild_config(
-            interaction.guild.id
-        )
-
-        welcome = "No configurado"
-
-        if config["welcome_channel_id"]:
-            channel = interaction.guild.get_channel(
-                config["welcome_channel_id"]
-            )
-
-            if channel:
-                welcome = channel.mention
-
-        rules = "No configurado"
-
-        if config["rules_channel_id"]:
-            channel = interaction.guild.get_channel(
-                config["rules_channel_id"]
-            )
-
-            if channel:
-                rules = channel.mention
-
-        role = "No configurado"
-
-        if config["alliance_role_id"]:
-            guild_role = interaction.guild.get_role(
-                config["alliance_role_id"]
-            )
-
-            if guild_role:
-                role = guild_role.mention
-
-        embed = discord.Embed(
-            title="⚙️ Configuración de ROK Alliance Manager"
-        )
-
-        embed.add_field(
-            name="⚔️ Alianza",
-            value=config["alliance_name"] or "No configurada",
-            inline=False
-        )
-
-        embed.add_field(
-            name="👑 Reino",
-            value=config["kingdom"] or "No configurado",
-            inline=False
-        )
-
-        embed.add_field(
-            name="👥 Comunidad",
-            value=config["community_name"] or "No configurada",
-            inline=False
-        )
-
-        embed.add_field(
-            name="👋 Bienvenida",
-            value=welcome,
-            inline=False
-        )
-
-        embed.add_field(
-            name="📜 Normas",
-            value=rules,
-            inline=False
-        )
-
-        embed.add_field(
-            name="🎭 Rol automático",
-            value=role,
-            inline=False
-        )
-
-        embed.add_field(
-            name="🌍 Idioma predeterminado",
-            value=(
-                "Español"
-                if config["default_language"] == "es"
-                else "English"
-            ),
-            inline=False
-        )
-
-        await interaction.response.send_message(
-            embed=embed,
-            ephemeral=True
-        )
-
-
-bot.tree.add_command(
-    ConfigCommands()
-)
-
-
-# =========================================================
-# ERRORES DE COMANDOS
-# =========================================================
-
-@bot.tree.error
-async def on_app_command_error(
-    interaction: discord.Interaction,
-    error: app_commands.AppCommandError
-):
-
-    logger.exception(
-        "Error ejecutando slash command",
-        exc_info=error
-    )
-
-    message = (
-        "⚠️ Se ha producido un error ejecutando el comando.\n"
-        "Comprueba los permisos del bot e inténtalo de nuevo."
-    )
-
-    try:
-
-        if interaction.response.is_done():
-
-            await interaction.followup.send(
-                message,
-                ephemeral=True
-            )
-
-        else:
-
-            await interaction.response.send_message(
-                message,
-                ephemeral=True
-            )
-
-    except Exception:
-        logger.exception(
-            "No se pudo enviar el mensaje de error."
-        )
-
-
-# =========================================================
-# EJECUCIÓN
-# =========================================================
-
-if __name__ == "__main__":
-
-    init_database()
-
-    logger.info(
-        "Iniciando ROK Alliance Manager..."
-    )
-
-    bot.run(TOKEN)
+
+            .addFields(
+
+              {
+                name: "⚔️ Alianza",
+                value:
+                  config.allianceName ||
+                  "No configurada",
+                inline: false
+              },
+
+              {
+                name: "👑 Reino",
+                value:
+                  config.kingdom ||
+                  "No configurado",
+                inline: false
+              },
+
+              {
+                name: "👥 Comunidad",
+                value:
+                  config.communityName ||
+                  "No configurada",
+                inline: false
+              },
+
+              {
+                name: "👋 Bienvenida",
+                value:
+                  config.welcomeChannelId
+                    ? `<#${config.welcomeChannelId}>`
+                    : "No configurada",
+                inline: false
+              },
+
+              {
+                name: "📜 Normas",
+                value:
+                  config.rulesChannelId
+                    ? `<#${config.rulesChannelId}>`
+                    : "No configuradas",
+                inline: false
+              },
+
+              {
+                name: "🎭 Rol automático",
+                value:
+                  config.memberRoleId
+                    ? `<@&${config.memberRoleId}>`
+                    : "No configurado",
+                inline: false
+              },
+
+              {
+                name: "🌍 Idioma",
+                value:
+                  config.defaultLanguage === "en"
+                    ? "🇬🇧 English"
+                    : "🇪🇸 Español",
+                inline: false
+              }
+
+            );
+
+
+        await interaction.reply({
+
+          embeds: [embed],
+
+          ephemeral: true
+
+        });
+
+        return;
+      }
+
+    }
+
+
+  } catch (error) {
+
+    console.error(
+      "❌ ERROR EN INTERACTION:",
+      error
+    );
+
+
+    try {
+
+      if (
+        interaction.deferred ||
+        interaction.replied
+      ) {
+
+        await interaction.followUp({
+
+          content:
+            "⚠️ Ha ocurrido un error ejecutando el comando.",
+
+          ephemeral: true
+
+        });
+
+      } else {
+
+        await interaction.reply({
+
+          content:
+            "⚠️ Ha ocurrido un error ejecutando el comando.",
+
+          ephemeral: true
+
+        });
+
+      }
+
+    } catch (secondError) {
+
+      console.error(
+        "❌ No se pudo responder al error:",
+        secondError
+      );
+
+    }
+
+  }
+
+});
+
+
+// ======================================================
+// ERRORES GENERALES
+// ======================================================
+
+client.on("error", error => {
+
+  console.error(
+    "❌ Error de Discord:",
+    error
+  );
+
+});
+
+
+process.on(
+  "unhandledRejection",
+  error => {
+
+    console.error(
+      "❌ Promesa rechazada:",
+      error
+    );
+
+  }
+);
+
+
+// ======================================================
+// CARGAR DATOS E INICIAR
+// ======================================================
+
+loadDatabase();
+
+console.log(
+  "🚀 Iniciando ROK Alliance Manager..."
+);
+
+client.login(TOKEN);
